@@ -2,17 +2,6 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-0.3.0-2563eb)
-![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776ab?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688?logo=fastapi&logoColor=white)
-![Docker Compose](https://img.shields.io/badge/Deploy-Docker%20Compose-2496ed?logo=docker&logoColor=white)
-
-**原件归档 · 文档版本 · 后台解析 · 条款分析 · 知识检索 · 标书草稿**
-
-[功能特性](#功能特性) · [界面预览](#界面预览) · [技术架构](#技术架构) · [快速开始](#快速开始) · [配置说明](#配置说明) · [文档导航](#文档导航)
-
-</div>
-
 Bid Agent 面向招投标文档的整理、解析与辅助编写，将项目、招标原件、修订版本和解析任务集中到浏览器工作台。上传后由后台处理，刷新页面或重启容器后，仍可查看原件、任务历史和已保存的解析结果。
 
 在文档工作台之外，项目保留了条款抽取、知识库、证据检索、目录及章节草稿工具。通过配置兼容 OpenAI 的模型接口和可选 MinerU 服务，可以继续进行智能分析与辅助编写。
@@ -38,13 +27,13 @@ Bid Agent 面向招投标文档的整理、解析与辅助编写，将项目、�
 
 ### 智能分析与标书辅助
 
-| 能力 | 当前用途 | 使用入口 |
-|---|---|---|
-| 招标要点抽取 | 项目概览、资格、废标、商务、技术与评分要求分析 | 原分析工具；智能分析需配置 LLM |
-| 知识库管理 | 知识条目创建、编辑、导入、导出 | 原知识库工具 |
-| 证据检索 | 关键词检索，可选 Chroma 向量检索与重排 | 原检索工具；向量能力需额外配置 |
-| 目录与章节草稿 | 生成目录及章节初稿，辅助后续编辑 | 原标书工具 |
-| 内容辅助审查 | 规则检查、原文对照和模型辅助分析 | 原审查工具 |
+| 能力           | 当前用途                                       | 使用入口                       |
+| -------------- | ---------------------------------------------- | ------------------------------ |
+| 招标要点抽取   | 项目概览、资格、废标、商务、技术与评分要求分析 | 原分析工具；智能分析需配置 LLM |
+| 知识库管理     | 知识条目创建、编辑、导入、导出                 | 原知识库工具                   |
+| 证据检索       | 关键词检索，可选 Chroma 向量检索与重排         | 原检索工具；向量能力需额外配置 |
+| 目录与章节草稿 | 生成目录及章节初稿，辅助后续编辑               | 原标书工具                     |
+| 内容辅助审查   | 规则检查、原文对照和模型辅助分析               | 原审查工具                     |
 
 管理员可以从工作台的成功解析结果进入原工具核对正文。后续分析仍沿用原有入库流程，尚未与新文档版本形成字段级证据关联；生成内容需要人工核对。
 
@@ -97,18 +86,18 @@ flowchart LR
 
 ### 核心技术栈
 
-| 层级 | 技术 | 职责 |
-|---|---|---|
-| Web 界面 | HTML、CSS、JavaScript | 文档工作台、解析结果与原分析界面 |
-| 后端 API | Python、FastAPI、Pydantic | 请求校验、登录、项目权限和业务接口 |
-| 数据访问 | Repository、SQLite WAL | 项目、知识、版本、任务、事件和 outbox |
-| 任务系统 | Celery、Redis、独立 Dispatcher | 消息投递、后台执行、心跳与恢复 |
-| 原件存储 | LocalObjectStore、SHA-256 | 持久化原件、内容寻址和下载校验 |
-| 文档处理 | pdfplumber、PyMuPDF、docx2python | 本地 PDF／DOCX 解析与结构转换 |
-| 智能能力 | OpenAI 兼容接口、可选 MinerU | 条款分析、草稿生成和文档解析 |
-| 可选本地 AI | Docling、OCR、Chroma、Embedding／Reranker | full 镜像中的扩展能力 |
-| 部署 | Docker Compose、Nginx、DaoCloud 镜像 | 五服务运行、同源代理、健康检查与日志轮转 |
-| 桌面外壳 | Electron | 打开同一网页，不单独启动 Python 后端 |
+| 层级        | 技术                                      | 职责                                     |
+| ----------- | ----------------------------------------- | ---------------------------------------- |
+| Web 界面    | HTML、CSS、JavaScript                     | 文档工作台、解析结果与原分析界面         |
+| 后端 API    | Python、FastAPI、Pydantic                 | 请求校验、登录、项目权限和业务接口       |
+| 数据访问    | Repository、SQLite WAL                    | 项目、知识、版本、任务、事件和 outbox    |
+| 任务系统    | Celery、Redis、独立 Dispatcher            | 消息投递、后台执行、心跳与恢复           |
+| 原件存储    | LocalObjectStore、SHA-256                 | 持久化原件、内容寻址和下载校验           |
+| 文档处理    | pdfplumber、PyMuPDF、docx2python          | 本地 PDF／DOCX 解析与结构转换            |
+| 智能能力    | OpenAI 兼容接口、可选 MinerU              | 条款分析、草稿生成和文档解析             |
+| 可选本地 AI | Docling、OCR、Chroma、Embedding／Reranker | full 镜像中的扩展能力                    |
+| 部署        | Docker Compose、Nginx、DaoCloud 镜像      | 五服务运行、同源代理、健康检查与日志轮转 |
+| 桌面外壳    | Electron                                  | 打开同一网页，不单独启动 Python 后端     |
 
 当前采用单机 SQLite，默认 API 单进程、Worker 并发为 1。PostgreSQL、S3 和多主机扩容属于后续阶段，详见[架构说明](docs/architecture/overview.md)。
 
@@ -116,11 +105,11 @@ flowchart LR
 
 ### 环境要求
 
-| 项目 | 要求 |
-|---|---|
-| 容器环境 | Docker Engine，或启用 Linux 容器模式的 Docker Desktop |
-| Compose | Docker Compose 2.24 或更新版本 |
-| 网络 | 首次构建可访问 DaoCloud 镜像站和 Python 包源 |
+| 项目     | 要求                                                   |
+| -------- | ------------------------------------------------------ |
+| 容器环境 | Docker Engine，或启用 Linux 容器模式的 Docker Desktop  |
+| Compose  | Docker Compose 2.24 或更新版本                         |
+| 网络     | 首次构建可访问 DaoCloud 镜像站和 Python 包源           |
 | 使用方式 | 浏览器访问；仅运行 Docker 无需宿主机 Python 或 Node.js |
 
 基础版可先从 4 GB 内存环境验证；本地 OCR、向量模型等完整能力需要更多资源，配置建议见[部署手册](docs/deployment/docker.md)。
@@ -166,12 +155,12 @@ docker compose up -d --build --wait --wait-timeout 180
 
 已有 `.env` 时保留现有配置，仅补充所需字段。默认镜像来自 **DaoCloud**：Python 3.12 slim、Redis 7 Alpine，以及固定摘要的 Nginx 1.31.3。
 
-| 入口 | 默认地址 |
-|---|---|
-| 文档工作台 | http://127.0.0.1:8080/ |
+| 入口             | 默认地址                         |
+| ---------------- | -------------------------------- |
+| 文档工作台       | http://127.0.0.1:8080/           |
 | 原分析与标书工具 | http://127.0.0.1:8080/index.html |
-| API 文档 | http://127.0.0.1:8080/api/docs |
-| API 就绪检查 | http://127.0.0.1:8080/api/ready |
+| API 文档         | http://127.0.0.1:8080/api/docs   |
+| API 就绪检查     | http://127.0.0.1:8080/api/ready  |
 
 端口由 `.env` 的 `BID_HTTP_PORT` 控制，以启动终端输出为准。本次本机验证因 8080 无法绑定，使用了 **http://127.0.0.1:18089/**；新部署模板默认仍为 8080。
 
@@ -212,21 +201,21 @@ worker        Up ... (healthy)          8000/tcp
 
 ### 常用环境变量
 
-| 变量 | 默认值 | 说明 |
-|---|---|---|
-| `BID_BIND_HOST` | `127.0.0.1` | 网页监听地址 |
-| `BID_HTTP_PORT` | `8080` | 网页和同源 API 的访问端口 |
-| `BID_IMAGE_TARGET` | `runtime` | `runtime` 基础版；`full` 安装本地 AI 相关依赖 |
-| `BID_MAX_UPLOAD_MB` | `50` | 单文件大小限制，单位 MiB；调整时同步修改 Nginx 上限 |
-| `BID_AUTH_ENABLED` | `false` | 是否启用账号登录和项目角色权限 |
-| `BID_ADMIN_USERNAME` | 空 | 首次启用认证时创建的管理员用户名 |
-| `BID_ADMIN_PASSWORD` | 空 | 首次管理员密码，长度 12–256 字符 |
-| `BID_COOKIE_SECURE` | `false` | 浏览器使用 HTTPS 时设置为 `true` |
-| `BID_REDIS_URL` | `redis://redis:6379/0` | 后台任务消息代理地址 |
-| `LLM_API_KEY`／`LLM_MODEL_ID`／`LLM_BASE_URL` | 空 | 智能分析使用的模型凭据、模型 ID 和接口地址 |
-| `MINERU_API_TOKEN` | 空 | 远程 MinerU 解析凭据 |
-| `BID_VECTOR_STORE_ENABLED` | `false` | 是否启用向量检索能力 |
-| `RERANKER_ENABLED` | `false` | 是否启用本地重排模型 |
+| 变量                                                | 默认值                   | 说明                                                |
+| --------------------------------------------------- | ------------------------ | --------------------------------------------------- |
+| `BID_BIND_HOST`                                   | `127.0.0.1`            | 网页监听地址                                        |
+| `BID_HTTP_PORT`                                   | `8080`                 | 网页和同源 API 的访问端口                           |
+| `BID_IMAGE_TARGET`                                | `runtime`              | `runtime` 基础版；`full` 安装本地 AI 相关依赖   |
+| `BID_MAX_UPLOAD_MB`                               | `50`                   | 单文件大小限制，单位 MiB；调整时同步修改 Nginx 上限 |
+| `BID_AUTH_ENABLED`                                | `false`                | 是否启用账号登录和项目角色权限                      |
+| `BID_ADMIN_USERNAME`                              | 空                       | 首次启用认证时创建的管理员用户名                    |
+| `BID_ADMIN_PASSWORD`                              | 空                       | 首次管理员密码，长度 12–256 字符                   |
+| `BID_COOKIE_SECURE`                               | `false`                | 浏览器使用 HTTPS 时设置为 `true`                  |
+| `BID_REDIS_URL`                                   | `redis://redis:6379/0` | 后台任务消息代理地址                                |
+| `LLM_API_KEY`／`LLM_MODEL_ID`／`LLM_BASE_URL` | 空                       | 智能分析使用的模型凭据、模型 ID 和接口地址          |
+| `MINERU_API_TOKEN`                                | 空                       | 远程 MinerU 解析凭据                                |
+| `BID_VECTOR_STORE_ENABLED`                        | `false`                | 是否启用向量检索能力                                |
+| `RERANKER_ENABLED`                                | `false`                | 是否启用本地重排模型                                |
 
 镜像地址通过 `PYTHON_IMAGE`、`NGINX_IMAGE`、`REDIS_IMAGE` 覆盖。全部参数、模型缓存及迁移方式见 [Docker 部署手册](docs/deployment/docker.md)。
 
@@ -252,12 +241,12 @@ BID_ADMIN_PASSWORD=replace-with-a-unique-password
 
 首次启动会创建管理员。管理员已存在后，修改环境变量不会重置其密码。通过 HTTPS 提供团队访问时，同时设置 `BID_COOKIE_SECURE=true`。
 
-| 角色 | 查看原件与结果 | 上传、解析、取消与重试 | 管理项目成员 | 原分析工具 |
-|---|---|---|---|---|
-| 管理员 | 全部项目 | 允许 | 允许 | 允许 |
-| owner | 自己的项目 | 允许 | 允许 | 不开放 |
-| editor | 已授权项目 | 允许 | 不允许 | 不开放 |
-| viewer | 已授权项目 | 不允许 | 不允许 | 不开放 |
+| 角色   | 查看原件与结果 | 上传、解析、取消与重试 | 管理项目成员 | 原分析工具 |
+| ------ | -------------- | ---------------------- | ------------ | ---------- |
+| 管理员 | 全部项目       | 允许                   | 允许         | 允许       |
+| owner  | 自己的项目     | 允许                   | 允许         | 不开放     |
+| editor | 已授权项目     | 允许                   | 不允许       | 不开放     |
+| viewer | 已授权项目     | 不允许                 | 不允许       | 不开放     |
 
 账号创建和成员分配操作见[权限与接口说明](docs/implementation/b01-b06.md#8-权限与接口)。当前尚无独立账号管理页面、密码找回和统一业务审计。
 
@@ -265,11 +254,11 @@ BID_ADMIN_PASSWORD=replace-with-a-unique-password
 
 ### 持久化数据
 
-| 默认命名卷 | 保存内容 |
-|---|---|
-| `bid-agent_bid-data` | SQLite、原件 objects、可选 Chroma 数据 |
-| `bid-agent_queue-data` | Redis AOF 消息持久化 |
-| `bid-agent_model-cache` | 模型下载缓存 |
+| 默认命名卷                | 保存内容                               |
+| ------------------------- | -------------------------------------- |
+| `bid-agent_bid-data`    | SQLite、原件 objects、可选 Chroma 数据 |
+| `bid-agent_queue-data`  | Redis AOF 消息持久化                   |
+| `bid-agent_model-cache` | 模型下载缓存                           |
 
 卷名前缀随 Compose 项目名变化。宿主机 `storage/` 用于本地开发，与 Docker 命名卷不是同一位置。
 
@@ -360,14 +349,14 @@ Electron 默认连接 `http://127.0.0.1:8080`，使用其他端口时通过 `BID
 
 ## 开发进度
 
-| 阶段 | 内容 | 状态 |
-|---|---|---|
-| B01–B03 | Repository、授权原件存储、文档版本与澄清附件关系 | 已实现 |
-| B04–B06 | 任务表、outbox、Worker、后台解析与统一结果结构 | 已实现 |
-| 配套工作台 | 登录与项目角色、文档列表、任务进度、结果和下载 | 已实现 |
-| B07–B10 | 字段级证据、PostgreSQL 迁移、企业资产与检索评测 | 计划中 |
-| B11–B13 | 标书／章节版本、证据约束生成与响应矩阵 | 计划中 |
-| B14–B16 | 正式 DOCX／PDF 导出、审查审批、生产恢复与容量验收 | 计划中 |
+| 阶段       | 内容                                              | 状态   |
+| ---------- | ------------------------------------------------- | ------ |
+| B01–B03   | Repository、授权原件存储、文档版本与澄清附件关系  | 已实现 |
+| B04–B06   | 任务表、outbox、Worker、后台解析与统一结果结构    | 已实现 |
+| 配套工作台 | 登录与项目角色、文档列表、任务进度、结果和下载    | 已实现 |
+| B07–B10   | 字段级证据、PostgreSQL 迁移、企业资产与检索评测   | 计划中 |
+| B11–B13   | 标书／章节版本、证据约束生成与响应矩阵            | 计划中 |
+| B14–B16   | 正式 DOCX／PDF 导出、审查审批、生产恢复与容量验收 | 计划中 |
 
 本地验证已覆盖 34 项回归测试，以及真实 Docker 队列、浏览器操作、容器重建、Redis 中断和 Worker 强制终止后的恢复。测试范围及保留在本地的测试文件说明见[验证记录](docs/verification.md)。
 
@@ -375,24 +364,22 @@ Electron 默认连接 `http://127.0.0.1:8080`，使用其他端口时通过 `BID
 
 ## 常见问题
 
-| 问题 | 处理方式 |
-|---|---|
-| 没有模型密钥能用吗？ | 可以管理项目、原件和版本，并使用本地 PDF 文本／DOCX 解析；智能分析另需 LLM 配置。 |
-| 页面能打开，任务一直排队？ | 检查 worker、dispatcher、redis 是否 healthy，再查看任务服务日志。 |
-| 8080 端口被占用？ | 修改 `.env` 中的 `BID_HTTP_PORT`，重新创建服务，按终端给出的地址访问。 |
-| 自动解析提示 MinerU 错误？ | 核对凭据；原生 PDF／DOCX 可显式切换到对应本地解析方式。 |
-| 点了取消为何仍在处理？ | 运行中的解析需等待当前调用结束再丢弃结果；取消不是立即杀死进程。 |
-| 重建容器后找不到数据？ | 检查 Compose 项目名及命名卷是否改变，确认没有删除数据卷。 |
-| 能直接导出正式 Word／PDF 标书吗？ | 当前支持原件及 Markdown 下载，正式排版导出列入后续阶段。 |
+| 问题                              | 处理方式                                                                          |
+| --------------------------------- | --------------------------------------------------------------------------------- |
+| 没有模型密钥能用吗？              | 可以管理项目、原件和版本，并使用本地 PDF 文本／DOCX 解析；智能分析另需 LLM 配置。 |
+| 页面能打开，任务一直排队？        | 检查 worker、dispatcher、redis 是否 healthy，再查看任务服务日志。                 |
+| 8080 端口被占用？                 | 修改 `.env` 中的 `BID_HTTP_PORT`，重新创建服务，按终端给出的地址访问。        |
+| 自动解析提示 MinerU 错误？        | 核对凭据；原生 PDF／DOCX 可显式切换到对应本地解析方式。                           |
+| 点了取消为何仍在处理？            | 运行中的解析需等待当前调用结束再丢弃结果；取消不是立即杀死进程。                  |
+| 重建容器后找不到数据？            | 检查 Compose 项目名及命名卷是否改变，确认没有删除数据卷。                         |
+| 能直接导出正式 Word／PDF 标书吗？ | 当前支持原件及 Markdown 下载，正式排版导出列入后续阶段。                          |
 
 ## 文档导航
 
-| 文档 | 内容 |
-|---|---|
-| [完整项目实施方案](docs/project-completion-plan.md) | 最终业务目标、阶段依赖与验收要求 |
+| 文档                                               | 内容                                   |
+| -------------------------------------------------- | -------------------------------------- |
+| [完整项目实施方案](docs/project-completion-plan.md) | 最终业务目标、阶段依赖与验收要求       |
 | [B01–B06 实施说明](docs/implementation/b01-b06.md) | 数据模型、状态机、接口、权限与实现边界 |
-| [架构梳理](docs/architecture/overview.md) | 模块职责、新旧业务链路及技术债 |
-| [Docker 部署手册](docs/deployment/docker.md) | 配置、登录、迁移、备份恢复与排错 |
-| [验证记录](docs/verification.md) | 已执行检查、故障验证及尚未覆盖范围 |
-
-README 的信息组织参考了 [BidMaster Pro](https://github.com/guangshu100/BidMaster-Pro)；上文功能、部署方式和截图均对应本仓库。
+| [架构梳理](docs/architecture/overview.md)           | 模块职责、新旧业务链路及技术债         |
+| [Docker 部署手册](docs/deployment/docker.md)        | 配置、登录、迁移、备份恢复与排错       |
+| [验证记录](docs/verification.md)                    | 已执行检查、故障验证及尚未覆盖范围     |

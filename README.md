@@ -6,6 +6,8 @@ Bid Agent 面向招投标文档的整理、解析与辅助编写，将项目、�
 
 > **当前版本：0.3.0。** 文档与后台解析流程已落地；条款分析和草稿生成通过原工具入口使用。正式 Word／PDF 成品导出、标书服务端版本和字段级证据闭环列入后续计划。
 
+AI 与协作者请先读根目录 [AGENTS.md](AGENTS.md)（结构、约定、验证与安全边界）；文档总入口见 [文档导航](docs/文档导航.md)。
+
 ## 功能特性
 
 ### 项目与原件管理
@@ -289,11 +291,21 @@ python scripts/backup_data.py
 
 ## 项目结构
 
+下面列出当前主要目录与入口；未展示本地忽略的依赖、`storage` 运行时数据与 IDE 配置。更细的职责、调用链与修改约定见 [AGENTS.md](AGENTS.md)。
+
 ```text
 Bid_Agent/
+├── frontend/
+│   ├── web/                    # 浏览器静态页：工作台 + 原分析工具
+│   │   ├── workspace.html/.js  # 默认首页：项目、原件、版本、任务
+│   │   ├── index.html/app.js   # 旧分析／知识库／标书工具
+│   │   └── api.js              # 同源 /api 客户端
+│   └── desktop/                # 可选 Electron 外壳
 ├── backend/bid_agent/
 │   ├── main.py                 # FastAPI 入口与数据库初始化
-│   ├── api/routes/             # 登录、文档工作台与原业务接口
+│   ├── worker.py               # Celery 解析任务消费者
+│   ├── dispatcher.py           # outbox 发布及失联任务恢复
+│   ├── api/routes/             # auth／workspace／documents／projects／knowledge／health
 │   ├── repositories/           # 项目、知识、权限、版本、任务与 outbox
 │   ├── schemas/                # 输入模型与 ParsedDocument
 │   ├── services/               # 后台解析与分析流程
@@ -304,17 +316,16 @@ Bid_Agent/
 │   ├── review/                 # 内容辅助审查
 │   ├── infrastructure/         # 原件存储、数据库与外部服务
 │   ├── core/                   # 环境配置、身份与会话
-│   ├── worker.py               # Celery 解析任务消费者
-│   └── dispatcher.py           # 消息发布及失联任务恢复
-├── frontend/web/               # 浏览器工作台与原分析工具
-├── frontend/desktop/           # 可选 Electron 外壳
+│   └── agents/                 # Plan-and-Solve 示例（未接入主链路）
 ├── deploy/                     # Dockerfile 与 Nginx 配置
 ├── requirements/               # 基础／完整依赖与锁文件
 ├── scripts/                    # 启动、备份与索引维护
-├── tests/                      # 已有回归测试
-├── docs/                       # 架构、部署、实施、验证及页面截图
-├── storage/                    # 本地开发数据
-├── compose.yaml                # 五服务部署配置
+├── tests/                      # pytest 回归与旧路由契约
+├── docs/                       # 方案、架构、实施、部署、验证、样例招标文件
+├── archives/                   # 历史迁移包（非开发基线）
+├── storage/                    # 本地／Compose 数据挂载点（gitignore）
+├── compose.yaml                # web／api／worker／dispatcher／redis
+├── AGENTS.md                   # AI／协作者仓库指南
 ├── pyproject.toml
 └── .env.example
 ```
@@ -374,10 +385,14 @@ Electron 默认连接 `http://127.0.0.1:8080`，使用其他端口时通过 `BID
 
 ## 文档导航
 
+完整索引见 [docs/文档导航.md](docs/文档导航.md)。
+
 | 文档                                               | 内容                                   |
 | -------------------------------------------------- | -------------------------------------- |
+| [AGENTS.md](AGENTS.md)                             | AI／协作者约定、结构、验证与安全边界   |
 | [完整项目实施方案](docs/project-completion-plan.md) | 最终业务目标、阶段依赖与验收要求       |
 | [B01–B06 实施说明](docs/implementation/b01-b06.md) | 数据模型、状态机、接口、权限与实现边界 |
 | [架构梳理](docs/architecture/overview.md)           | 模块职责、新旧业务链路及技术债         |
 | [Docker 部署手册](docs/deployment/docker.md)        | 配置、登录、迁移、备份恢复与排错       |
 | [验证记录](docs/verification.md)                    | 已执行检查、故障验证及尚未覆盖范围     |
+| [解析样例](docs/samples/README.md)                  | 公开招标文件样例（供后续解析评测）     |

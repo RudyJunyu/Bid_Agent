@@ -76,6 +76,11 @@ def recommend_parse_method(document: str) -> str:
 
 
 def recommend_parse_method_from_profile(profile: dict) -> str:
+    """Pick a parser from preflight signals.
+
+    Prefer free local extractors whenever a usable text layer exists.
+    Reserve remote MinerU for scanned / image-heavy documents that lack text.
+    """
     suffix = str(profile.get("suffix") or "").lower()
 
     if suffix == ".docx":
@@ -91,14 +96,22 @@ def recommend_parse_method_from_profile(profile: dict) -> str:
     if suffix == ".pdf":
         pdf_type = str(profile.get("pdf_type") or "")
         page_count = int(profile.get("page_count") or 0)
+        sample_pages = max(1, int(profile.get("sample_pages") or 1))
+        sample_text_chars = int(profile.get("sample_text_chars") or 0)
+        text_chars_per_page = sample_text_chars / sample_pages
+        text_layer_pages = int(profile.get("text_layer_pages") or 0)
+        has_usable_text = text_layer_pages > 0 and text_chars_per_page >= 80
 
-        if pdf_type == "scanned_pdf":
+        if pdf_type == "scanned_pdf" or (not has_usable_text and pdf_type != "simple_text_pdf"):
             return "mineru_parallel_pages" if page_count >= 30 else "mineru_vlm"
-        if pdf_type == "mixed_pdf":
-            return "mineru_parallel_pages"
-        if pdf_type == "simple_text_pdf":
+        if pdf_type in {"simple_text_pdf", "native_text_pdf"}:
             return "pdfplumber"
-        return "mineru_parallel_pages" if page_count >= 30 else "mineru_pipeline"
+        if pdf_type == "mixed_pdf":
+            # Text layer is good enough for local parse; images/OCR can be a later pass.
+            if has_usable_text:
+                return "pdfplumber"
+            return "mineru_parallel_pages" if page_count >= 30 else "mineru_vlm"
+        return "pdfplumber" if has_usable_text else ("mineru_parallel_pages" if page_count >= 30 else "mineru_vlm")
 
     if suffix in {".png", ".jpg", ".jpeg", ".webp"}:
         return "mineru_vlm"
@@ -239,7 +252,10 @@ def classify_pdf_profile(profile: dict) -> dict:
     elif image_count or sample_image_count:
         pdf_type = "mixed_pdf"
         label = "图文混排 PDF"
-        layers = ["解析层：多模态解析", "结构还原层：页码、标题、章节、表格、图片说明"]
+        if text_chars_per_page >= 80:
+            layers = ["解析层：本地 pdfplumber（文本优先）", "结构还原层：页码、标题、章节、表格；图片文字可选 MinerU／OCR"]
+        else:
+            layers = ["解析层：多模态解析", "结构还原层：页码、标题、章节、表格、图片说明"]
     else:
         if (
             text_chars_per_page >= 300
@@ -252,9 +268,13 @@ def classify_pdf_profile(profile: dict) -> dict:
         else:
             pdf_type = "native_text_pdf"
             label = "原生复杂 PDF"
-            layers = ["解析层：MinerU 结构化解析", "结构还原层：页码、标题、章节、段落、表格"]
+            layers = ["解析层：本地 pdfplumber 文本抽取", "结构还原层：页码、标题、章节、段落、表格"]
         if text_chars_per_page < 80:
             profile.setdefault("warnings", []).append("PDF 样本页文本较少，可能是封面/目录或文本层质量偏低。")
+    if pdf_type == "mixed_pdf" and text_chars_per_page >= 80:
+        profile.setdefault("warnings", []).append(
+            "检测到图片，但文本层可用；自动解析优先本地 pdfplumber，图片内文字可能需 MinerU／OCR。"
+        )
 
     return {
         "pdf_type": pdf_type,

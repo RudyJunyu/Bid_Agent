@@ -100,6 +100,31 @@ def init_platform_schema(db_path: Path = DB_PATH) -> None:
         CREATE INDEX IF NOT EXISTS ix_outbox_delivery ON outbox_events(status,available_at,lease_expires_at);
         ''')
         conn.execute('INSERT OR IGNORE INTO platform_migrations(version,applied_at) VALUES(1,?)', (now(),))
+        # B07 draft: structured requirements with evidence refs.
+        conn.executescript('''
+        CREATE TABLE IF NOT EXISTS requirement_items (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            document_version_id TEXT NOT NULL REFERENCES document_versions(id) ON DELETE CASCADE,
+            job_id TEXT,
+            category TEXT NOT NULL,
+            field_key TEXT,
+            title TEXT NOT NULL,
+            raw_text TEXT NOT NULL,
+            normalized_value TEXT,
+            confidence REAL NOT NULL,
+            review_status TEXT NOT NULL DEFAULT 'draft',
+            source_refs_json TEXT NOT NULL,
+            extractor_version TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_requirements_version
+            ON requirement_items(document_version_id, category, created_at);
+        CREATE INDEX IF NOT EXISTS ix_requirements_project
+            ON requirement_items(project_id, review_status);
+        ''')
+        conn.execute('INSERT OR IGNORE INTO platform_migrations(version,applied_at) VALUES(2,?)', (now(),))
 
 
 class NotFoundError(ValueError):

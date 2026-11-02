@@ -65,6 +65,8 @@ Compose 五服务：仅 `web`（Nginx）发布宿主机端口；`api`／`worker`
 | --- | --- |
 | 产品范围、阶段与验收 | [完整实施方案](docs/project-completion-plan.md) |
 | B01–B06 数据模型、状态机、权限与接口边界 | [实施说明](docs/implementation/b01-b06.md) |
+| B07 结构化要求与证据（草稿） | [B07 草稿](docs/implementation/b07-draft.md) |
+| 本轮增量改动说明（给接手伙伴） | [改动说明](docs/改动说明.md) |
 | 模块职责、新旧链路与技术债 | [架构梳理](docs/architecture/overview.md) |
 | Compose、认证、备份恢复与排错 | [Docker 部署手册](docs/deployment/docker.md) |
 | 本轮已验证与未覆盖项 | [验证记录](docs/verification.md) |
@@ -116,7 +118,10 @@ CI（`.github/workflows/ci.yml`）覆盖 pytest、ruff、前端 `node --check`�
 ## 文档维护
 
 - 结构、目录、服务边界变化同步 [架构](docs/architecture/overview.md)、README「项目结构」与本文件。
-- 范围、阶段、验收变化同步 [完整实施方案](docs/project-completion-plan.md)；B01–B06 边界变化同步 [实施说明](docs/implementation/b01-b06.md)。
+- 范围、阶段、验收变化同步 [完整实施方案](docs/project-completion-plan.md)；B01–B06 边界变化同步 [实施说明](docs/implementation/b01-b06.md)；B07 及相关草稿边界同步 [B07 草稿](docs/implementation/b07-draft.md)。
 - 部署与运维步骤变化同步 [Docker 手册](docs/deployment/docker.md)；重要验证结果追加 [verification](docs/verification.md)。
+- **持续维护 [改动说明](docs/改动说明.md)**：凡影响行为、API、数据模型、解析策略、默认配置或验收方式的交付，必须在同一次提交中追加／修订该文档（日期、动机、文件清单、行为前后对比、验证方式、已知限制、给接手人的注意点）。纯错别字或无损重构可注明“改动说明：已检查，无需更新”。该文件面向后续开发伙伴，不能用口头说明或仅 PR 描述代替。
+- 新增、重命名、下线文档时同步 [文档导航](docs/文档导航.md) 与本文件「开发前阅读」。
 - `docs/` 说明文档优先中文文件名；本文件、`compose.yaml`、契约 JSON、代码目录 README 保留固定英文名。
-- 单次变更达到 6 个文件（不含构建产物与 `storage`）时复核受影响文档；交付时注明文档是否已更新或“已检查，无需更新”。
+- 单次变更达到 6 个文件（不含构建产物与 `storage`）时必须复核受影响文档；上述改动说明等持续维护要求**不受** 6 文件门槛限制。
+- 交付时列出已更新文档与验证缺口；检查本指南，长期约定变化时同步更新本文件，否则注明“AGENTS：已检查，无需更新”。

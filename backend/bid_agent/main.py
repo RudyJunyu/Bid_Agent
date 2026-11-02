@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # Load configuration before importing application modules.
 from bid_agent.core.settings import BUILD_VERSION, CORS_ORIGINS, ROOT_PATH
 from bid_agent.infrastructure.database import init_database
-from bid_agent.api.routes import auth, documents, health, knowledge, projects, workspace
+from bid_agent.api.routes import auth, documents, health, knowledge, projects, requirements, workspace
 from bid_agent.core.security import bootstrap_identity, legacy_admin
 from bid_agent.repositories.platform import init_platform_schema, NotFoundError, ConflictError, ForbiddenError
 
@@ -29,6 +29,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(workspace.router)
+    app.include_router(requirements.router)
     for route in (documents.router, projects.router, knowledge.router):
         app.include_router(route, dependencies=[Depends(legacy_admin)])
 

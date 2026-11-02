@@ -50,6 +50,11 @@ CHINESE_CHAPTER_RE = re.compile(
 CHINESE_ORDER_RE = re.compile(r"^\s*([一二三四五六七八九十百千万零〇]+[、.．]\s*.+?)\s*$")
 NUMBERED_HEADING_RE = re.compile(r"^\s*((?:\d+[.．、]){1,5}\s*.+?)\s*$")
 PAREN_HEADING_RE = re.compile(r"^\s*([（(][一二三四五六七八九十百千万零〇\d]+[）)]\s*.+?)\s*$")
+PAGE_MARKER_RE = re.compile(r"^第\s*\d+\s*页$")
+PAGE_COMMENT_RE = re.compile(r"<!--\s*page:(\d+)\s*-->", re.IGNORECASE)
+NUMBERED_WITH_VALUE_RE = re.compile(
+    r"^\s*\d+(?:[.．、]\d+)*[.．、]?\s*.*[：:]\s*\S"
+)
 
 
 def parse_bid_document(
@@ -80,6 +85,7 @@ def parse_bid_document(
         timeout=timeout,
     )
     sections = split_bid_markdown_sections(markdown)
+    sections = consolidate_bid_sections(sections)
     return enrich_sections_with_metadata(sections, document=document)
 
 
@@ -152,39 +158,15 @@ def parse_document_to_markdown(
 
 
 def _normalize_parse_method(document: str, parse_method: Optional[str]) -> str:
-    """Convert UI/API aliases such as auto into a concrete parser name."""
-    method = (parse_method or "mineru_vlm").strip()
-    if method != "auto":
-        return method
+    """Convert UI/API aliases such as auto into a concrete parser name.
 
-    path = Path(document)
-    suffix = path.suffix.lower()
-    if suffix == ".docx":
-        try:
-            with zipfile.ZipFile(path) as archive:
-                image_count = sum(
-                    1
-                    for name in archive.namelist()
-                    if name.startswith("word/media/") and not name.endswith("/")
-                )
-        except Exception:
-            image_count = 0
-        return "docx2python_image_ocr" if image_count >= 8 else "docx2python"
-    if suffix == ".doc":
-        return "docx2python_image_ocr"
-    if suffix == ".pdf":
-        if not _pdf_has_text_layer(path):
-            page_count = _get_pdf_page_count(path)
-            return "mineru_parallel_pages" if page_count >= 30 else "mineru_vlm"
-        if _pdf_has_images(path):
-            return "mineru_parallel_pages"
-        if _pdf_is_simple_text_file(path):
-            return "pdfplumber"
-        page_count = _get_pdf_page_count(path)
-        return "mineru_parallel_pages" if page_count >= 30 else "mineru_pipeline"
-    if suffix in {".png", ".jpg", ".jpeg", ".webp"}:
-        return "mineru_vlm"
-    return "mineru_vlm"
+    Delegates to strategy.resolve_parse_method so auto recommendations stay in one place.
+    """
+    from bid_agent.parsing.strategy import resolve_parse_method
+
+    method = (parse_method or "auto").strip() or "auto"
+    resolved, _ = resolve_parse_method(document, method)
+    return resolved
 
 
 def _pdf_is_simple_text_file(path: Path) -> bool:
@@ -551,6 +533,75 @@ def split_bid_markdown_sections(markdown: str) -> List[BidDocumentSection]:
     return sections
 
 
+def consolidate_bid_sections(sections: List[BidDocumentSection]) -> List[BidDocumentSection]:
+    """Merge page-only headings and keep real chapter/section structure."""
+    if not sections:
+        return sections
+
+    merged: List[BidDocumentSection] = []
+    for section in sections:
+        title = (section.title or "").strip()
+        if PAGE_MARKER_RE.fullmatch(title):
+            page_no = _guess_page_number(title) or _guess_page_number(section.markdown or "")
+            body = (section.content or "").strip() or (section.markdown or "").strip()
+            # Drop the synthetic "第 N 页" heading line from body if still present.
+            body_lines = []
+            for line in body.splitlines():
+                md_match = MARKDOWN_HEADING_RE.match(line.strip())
+                if md_match and PAGE_MARKER_RE.fullmatch(md_match.group(2).strip()):
+                    continue
+                body_lines.append(line)
+            body = "\n".join(body_lines).strip()
+            if not merged:
+                metadata = {
+                    "title_path": ["前言"],
+                    "tables": _extract_markdown_tables_json(body),
+                    "images": [],
+                    "page_start": page_no,
+                    "page_end": page_no,
+                    "heading_detection": "page_marker_merged",
+                }
+                merged.append(
+                    BidDocumentSection(
+                        index=1,
+                        title="前言",
+                        level=1,
+                        content=body,
+                        markdown=body,
+                        metadata=metadata,
+                    )
+                )
+                continue
+            previous = merged[-1]
+            pieces = [previous.content or "", body]
+            content = "\n\n".join(piece for piece in pieces if piece).strip()
+            markdown = "\n\n".join(
+                piece for piece in [previous.markdown or "", body] if piece
+            ).strip()
+            metadata = dict(previous.metadata or {})
+            if page_no:
+                metadata["page_start"] = metadata.get("page_start") or page_no
+                metadata["page_end"] = page_no
+            metadata["tables"] = _extract_markdown_tables_json(markdown)
+            merged[-1] = previous.model_copy(
+                update={"content": content, "markdown": markdown, "metadata": metadata}
+            )
+            continue
+        merged.append(section)
+
+    current_page: int | None = None
+    for index, section in enumerate(merged, start=1):
+        metadata = dict(section.metadata or {})
+        page_hint = _guess_page_number(section.markdown or "") or _guess_page_number(section.content or "")
+        if page_hint:
+            current_page = page_hint
+        if current_page:
+            metadata["page_start"] = metadata.get("page_start") or current_page
+            metadata["page_end"] = current_page
+        merged[index - 1] = section.model_copy(update={"index": index, "metadata": metadata})
+    return merged
+
+
 def enrich_sections_with_metadata(
     sections: List[BidDocumentSection],
     *,
@@ -682,7 +733,11 @@ def _normalize_openpyxl_merged_cells(ws: Any) -> None:
 
 
 def _guess_page_number(markdown: str) -> int | None:
-    match = re.search(r"第\s*(\d+)\s*页", str(markdown or ""))
+    text = str(markdown or "")
+    comment = PAGE_COMMENT_RE.search(text)
+    if comment:
+        return int(comment.group(1))
+    match = re.search(r"第\s*(\d+)\s*页", text)
     return int(match.group(1)) if match else None
 
 
@@ -696,29 +751,6 @@ def _resolve_mineru_method(
     if parse_method == "mineru_html":
         return "MinerU-HTML", False
     return model_version or "vlm", bool(is_ocr) if is_ocr is not None else False
-
-
-def _parse_pdf_with_pdfplumber(document: str, page_ranges: Optional[str]) -> str:
-    path = Path(document).expanduser().resolve()
-    if path.suffix.lower() != ".pdf":
-        raise ValueError("pdfplumber only supports local PDF files.")
-    if not path.exists():
-        raise FileNotFoundError(f"PDF file not found: {path}")
-
-    try:
-        import pdfplumber
-    except ImportError as exc:
-        raise RuntimeError("Please install pdfplumber before using parse_method=pdfplumber.") from exc
-
-    selected_pages = _parse_page_ranges(page_ranges)
-    page_texts = []
-    with pdfplumber.open(path) as pdf:
-        for page_index, page in enumerate(pdf.pages, start=1):
-            if selected_pages and page_index not in selected_pages:
-                continue
-            text = page.extract_text() or ""
-            page_texts.append(f"## 第 {page_index} 页\n{text.strip()}")
-    return "\n\n".join(page_texts).strip()
 
 
 def _parse_docx_with_docx2python(document: str, include_image_ocr: bool = False) -> str:
@@ -1293,15 +1325,16 @@ def _parse_pdf_with_pdfplumber(document: str, page_ranges: Optional[str]) -> str
             if selected_pages and page_index not in selected_pages:
                 continue
             text = page.extract_text() or ""
-            blocks = [f"<!-- page:{page_index} -->", f"## 第 {page_index} 页"]
+            # Keep page markers as comments only — do not emit "## 第 N 页" headings
+            # (those used to explode section trees for multi-page tenders).
+            blocks = [f"<!-- page:{page_index} -->"]
             if text.strip():
                 blocks.append(text.strip())
             table_blocks = _extract_pdfplumber_tables_as_markdown(page)
             if table_blocks:
-                blocks.append("### 表格")
                 blocks.extend(table_blocks)
             if getattr(page, "images", None):
-                blocks.append(f"### 图片说明\n本页检测到 {len(page.images)} 个图片/图形对象，建议结合图片解析模块核对。")
+                blocks.append(f"本页检测到 {len(page.images)} 个图片/图形对象，建议结合图片解析模块核对。")
             page_texts.append("\n\n".join(blocks))
     return "\n\n".join(page_texts).strip()
 
@@ -1358,7 +1391,13 @@ def _detect_heading(line: str) -> Optional[tuple[int, str]]:
 
     markdown_match = MARKDOWN_HEADING_RE.match(stripped)
     if markdown_match:
-        return len(markdown_match.group(1)), markdown_match.group(2).strip()
+        title = markdown_match.group(2).strip()
+        if PAGE_MARKER_RE.fullmatch(title):
+            return None
+        return len(markdown_match.group(1)), title
+
+    if PAGE_MARKER_RE.fullmatch(stripped):
+        return None
 
     for pattern, level in (
         (CHINESE_CHAPTER_RE, 1),
@@ -1374,8 +1413,21 @@ def _detect_heading(line: str) -> Optional[tuple[int, str]]:
 
 
 def _looks_like_heading(text: str) -> bool:
-    if len(text) > 80:
+    if len(text) > 48:
         return False
-    if text.endswith(("。", "，", ",", "；", ";")):
+    if text.endswith(("。", "，", ",", "；", ";", "、")):
+        return False
+    # Numbered lines that already carry a concrete value (1.1项目编号：xxx) are body text.
+    if NUMBERED_WITH_VALUE_RE.match(text):
+        return False
+    if re.search(r"[：:]\s*\S", text):
+        return False
+    # Numbered lines that read like sentences (comma/period mid-line) are body text.
+    if re.match(r"^\s*\d+", text) and ("，" in text or "。" in text or "；" in text or len(text) > 36):
+        return False
+    # Parenthetical clauses that read like sentences are body text.
+    if text.startswith(("（", "(")) and (
+        len(text) > 36 or "。" in text or "，" in text or "<" in text or "www." in text.lower()
+    ):
         return False
     return True

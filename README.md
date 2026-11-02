@@ -8,6 +8,47 @@ Bid Agent 面向招投标文档的整理、解析与辅助编写，将项目、�
 
 AI 与协作者请先读根目录 [AGENTS.md](AGENTS.md)（结构、约定、验证与安全边界）；文档总入口见 [文档导航](docs/文档导航.md)。
 
+## 项目结构
+
+下面列出当前主要目录与入口；未展示本地忽略的依赖、`storage` 运行时数据与 IDE 配置。更细的职责、调用链与修改约定见 [AGENTS.md](AGENTS.md)。
+
+```text
+Bid_Agent/
+├── frontend/
+│   ├── web/                    # 浏览器静态页：工作台 + 原分析工具
+│   │   ├── workspace.html/.js  # 默认首页：项目、原件、版本、任务
+│   │   ├── index.html/app.js   # 旧分析／知识库／标书工具
+│   │   └── api.js              # 同源 /api 客户端
+│   └── desktop/                # 可选 Electron 外壳
+├── backend/bid_agent/
+│   ├── main.py                 # FastAPI 入口与数据库初始化
+│   ├── worker.py               # Celery 解析任务消费者
+│   ├── dispatcher.py           # outbox 发布及失联任务恢复
+│   ├── api/routes/             # auth／workspace／documents／projects／knowledge／health
+│   ├── repositories/           # 项目、知识、权限、版本、任务与 outbox
+│   ├── schemas/                # 输入模型与 ParsedDocument
+│   ├── services/               # 后台解析与分析流程
+│   ├── parsing/                # PDF／DOCX／其他解析器及策略
+│   ├── analysis/               # 规则、Prompt 与专项抽取
+│   ├── rag/                    # 关键词与可选向量检索
+│   ├── generation/             # 目录及章节草稿生成
+│   ├── review/                 # 内容辅助审查
+│   ├── infrastructure/         # 原件存储、数据库与外部服务
+│   ├── core/                   # 环境配置、身份与会话
+│   └── agents/                 # Plan-and-Solve 示例（未接入主链路）
+├── deploy/                     # Dockerfile 与 Nginx 配置
+├── requirements/               # 基础／完整依赖与锁文件
+├── scripts/                    # 启动、备份与索引维护
+├── tests/                      # pytest 回归与旧路由契约
+├── docs/                       # 方案、架构、实施、部署、验证、样例招标文件
+├── archives/                   # 历史迁移包（非开发基线）
+├── storage/                    # 本地／Compose 数据挂载点（gitignore）
+├── compose.yaml                # web／api／worker／dispatcher／redis
+├── AGENTS.md                   # AI／协作者仓库指南
+├── pyproject.toml
+└── .env.example
+```
+
 ## 功能特性
 
 ### 项目与原件管理
@@ -189,7 +230,7 @@ worker        Up ... (healthy)          8000/tcp
 ### 完成第一次解析
 
 1. 在左侧输入项目名称，点击“创建项目”。
-2. 选择 PDF 或 DOCX 原件。无需外部服务的体验请选择“本地 PDF 文本”或“本地 DOCX”；自动策略可能选择 MinerU。
+2. 选择 PDF 或 DOCX 原件。有文字层的 PDF 在「自动」下默认走本地 pdfplumber；扫描件／无可用文本层才会推荐 MinerU（需配置 token）。
 3. 点击“保存原件并解析”，在任务列表查看状态。此时可以刷新或离开页面。
 4. 完成后点击“查看结果”，核对章节正文；使用“下载原件”或“下载 Markdown”保存文件。
 5. 上传修订稿时，在“保存到”中选择原文档，系统新增 v2 并保留 v1。澄清和附件可设置类型及关联文档。
@@ -289,47 +330,6 @@ python scripts/backup_data.py
 
 脚本短暂停止业务写入服务，备份数据库和原件、生成哈希清单，再恢复此前运行的服务。备份不包含 `.env`、模型缓存和 Redis 卷；恢复及升级步骤见[部署手册](docs/deployment/docker.md#6-备份与恢复)。
 
-## 项目结构
-
-下面列出当前主要目录与入口；未展示本地忽略的依赖、`storage` 运行时数据与 IDE 配置。更细的职责、调用链与修改约定见 [AGENTS.md](AGENTS.md)。
-
-```text
-Bid_Agent/
-├── frontend/
-│   ├── web/                    # 浏览器静态页：工作台 + 原分析工具
-│   │   ├── workspace.html/.js  # 默认首页：项目、原件、版本、任务
-│   │   ├── index.html/app.js   # 旧分析／知识库／标书工具
-│   │   └── api.js              # 同源 /api 客户端
-│   └── desktop/                # 可选 Electron 外壳
-├── backend/bid_agent/
-│   ├── main.py                 # FastAPI 入口与数据库初始化
-│   ├── worker.py               # Celery 解析任务消费者
-│   ├── dispatcher.py           # outbox 发布及失联任务恢复
-│   ├── api/routes/             # auth／workspace／documents／projects／knowledge／health
-│   ├── repositories/           # 项目、知识、权限、版本、任务与 outbox
-│   ├── schemas/                # 输入模型与 ParsedDocument
-│   ├── services/               # 后台解析与分析流程
-│   ├── parsing/                # PDF／DOCX／其他解析器及策略
-│   ├── analysis/               # 规则、Prompt 与专项抽取
-│   ├── rag/                    # 关键词与可选向量检索
-│   ├── generation/             # 目录及章节草稿生成
-│   ├── review/                 # 内容辅助审查
-│   ├── infrastructure/         # 原件存储、数据库与外部服务
-│   ├── core/                   # 环境配置、身份与会话
-│   └── agents/                 # Plan-and-Solve 示例（未接入主链路）
-├── deploy/                     # Dockerfile 与 Nginx 配置
-├── requirements/               # 基础／完整依赖与锁文件
-├── scripts/                    # 启动、备份与索引维护
-├── tests/                      # pytest 回归与旧路由契约
-├── docs/                       # 方案、架构、实施、部署、验证、样例招标文件
-├── archives/                   # 历史迁移包（非开发基线）
-├── storage/                    # 本地／Compose 数据挂载点（gitignore）
-├── compose.yaml                # web／api／worker／dispatcher／redis
-├── AGENTS.md                   # AI／协作者仓库指南
-├── pyproject.toml
-└── .env.example
-```
-
 ## 本地开发
 
 推荐使用与容器一致的 **Python 3.12**；项目声明支持 Python 3.11／3.12。
@@ -378,7 +378,7 @@ Electron 默认连接 `http://127.0.0.1:8080`，使用其他端口时通过 `BID
 | 没有模型密钥能用吗？              | 可以管理项目、原件和版本，并使用本地 PDF 文本／DOCX 解析；智能分析另需 LLM 配置。 |
 | 页面能打开，任务一直排队？        | 检查 worker、dispatcher、redis 是否 healthy，再查看任务服务日志。                 |
 | 8080 端口被占用？                 | 修改 `.env` 中的 `BID_HTTP_PORT`，重新创建服务，按终端给出的地址访问。        |
-| 自动解析提示 MinerU 错误？        | 核对凭据；原生 PDF／DOCX 可显式切换到对应本地解析方式。                           |
+| 自动解析提示 MinerU 错误？        | 多为扫描件或缺文本层；配置 `MINERU_API_TOKEN`，或对有文字层 PDF 用本地解析／重试（0.3.0 后自动默认本地）。 |
 | 点了取消为何仍在处理？            | 运行中的解析需等待当前调用结束再丢弃结果；取消不是立即杀死进程。                  |
 | 重建容器后找不到数据？            | 检查 Compose 项目名及命名卷是否改变，确认没有删除数据卷。                         |
 | 能直接导出正式 Word／PDF 标书吗？ | 当前支持原件及 Markdown 下载，正式排版导出列入后续阶段。                          |

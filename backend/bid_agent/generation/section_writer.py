@@ -6,7 +6,7 @@ import json
 import re
 from typing import Any
 
-from bid_agent.infrastructure.database import get_project_detail
+from bid_agent.repositories.projects import get_project_detail
 from bid_agent.infrastructure.llm_client import LLM_Invoke
 
 

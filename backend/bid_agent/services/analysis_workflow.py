@@ -17,6 +17,9 @@ from bid_agent.infrastructure.llm_client import LLM_Invoke
 from bid_agent.core.model_config import resolve_llm_selection, resolve_llm_base_url
 
 def _raise_api_error(exc: Exception) -> None:
+    from bid_agent.repositories.platform import ConflictError, ForbiddenError, NotFoundError
+    if isinstance(exc, (ConflictError, ForbiddenError, NotFoundError)):
+        raise exc
     if isinstance(exc, HTTPException):
         raise exc
     error_type, message, hint = _classify_exception(exc)

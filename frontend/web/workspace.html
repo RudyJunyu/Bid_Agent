@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>文档工作台 · 投标</title>
+  <link rel="stylesheet" href="./workspace.css" />
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="./workspace.html"><span class="brand-mark">投</span><div>投标工作台<small>文档、版本与解析任务</small></div></a>
+    <nav><a id="legacyLink" href="./index.html" hidden>分析与标书工具 ↗</a><span id="identity" class="muted"></span><button id="logout" hidden>退出</button></nav>
+  </header>
+  <div id="notice" class="notice" role="status" hidden></div>
+  <section id="loginPanel" class="login-card" hidden>
+    <p class="eyebrow">WORKSPACE</p><h1>登录工作空间</h1><p class="muted">使用管理员分配的账号访问项目和原件。</p>
+    <form id="loginForm"><label>用户名<input id="username" autocomplete="username" required maxlength="64" /></label>
+      <label>密码<input id="password" type="password" autocomplete="current-password" required maxlength="256" /></label>
+      <button class="primary" type="submit">登录</button></form>
+  </section>
+  <main id="workspace" class="layout" hidden>
+    <aside class="project-panel">
+      <div class="section-heading"><h2>项目</h2><span id="projectCount" class="badge">0</span></div>
+      <form id="projectForm"><label class="sr-only" for="projectTitle">新项目名称</label><input id="projectTitle" placeholder="输入新项目名称" required maxlength="200" /><button type="submit" class="primary">＋ 创建项目</button></form>
+      <div id="projectList" class="project-list"></div>
+    </aside>
+    <section class="main-panel">
+      <div id="emptyState" class="empty"><span class="empty-symbol">▧</span><h1>从一个项目开始</h1><p>保存招标原件，保留每个版本。解析任务在后台继续，刷新页面不会丢失。</p></div>
+      <div id="projectContent" hidden>
+        <div class="project-heading"><div><p class="eyebrow">DOCUMENT WORKSPACE</p><h1 id="activeTitle"></h1><p id="accessHint" class="muted"></p></div><button id="refresh">刷新</button></div>
+        <details id="membersPanel" class="card compact"><summary>项目成员</summary><form id="memberForm" class="inline-form"><input id="memberName" placeholder="已有用户名" required maxlength="64" aria-label="成员用户名" /><select id="memberRole" aria-label="成员权限"><option value="viewer">只读查看</option><option value="editor">编辑与解析</option></select><button type="submit">添加／更新成员</button></form></details>
+        <section class="card upload-card">
+          <div><h2>保存原件</h2><p class="muted">版本不可覆盖，可随时下载并核对原文件。支持 PDF、DOCX、图片与 HTML，单文件最多 50 MiB。</p></div>
+          <form id="uploadForm">
+            <div class="form-grid"><label>文件<input id="documentFile" type="file" accept=".pdf,.docx,.png,.jpg,.jpeg,.webp,.html" required /></label>
+              <label>保存到<select id="targetDocument"><option value="">新建文档</option></select></label>
+              <label>文档类型<select id="documentKind"><option value="tender">招标文件</option><option value="clarification">澄清文件</option><option value="attachment">附件</option></select></label>
+              <label>关联原文档<select id="parentDocument"><option value="">无关联</option></select></label>
+              <label>解析方式<select id="parseMethod"><option value="auto">自动选择</option><option value="pdfplumber">本地 PDF 文本</option><option value="docx2python">本地 DOCX</option><option value="mineru_vlm">MinerU VLM</option><option value="mineru_pipeline">MinerU Pipeline</option><option value="mineru_html">MinerU HTML</option><option value="docling">本地 Docling（完整版）</option></select></label>
+              <label class="check"><input id="parseAfterUpload" type="checkbox" checked /> 保存后开始解析</label>
+            </div><div class="form-actions"><span id="uploadHint" class="muted">自动解析可能需要 MinerU 配置；本地 PDF／DOCX 无需模型密钥。</span><button id="uploadButton" class="primary" type="submit">保存原件并解析</button></div>
+          </form>
+        </section>
+        <section class="card"><div class="section-heading"><h2>文档与历史版本</h2><span id="documentCount" class="badge">0</span></div><div id="documents" class="documents"></div></section>
+        <section class="card"><div class="section-heading"><div><h2>解析任务</h2><p class="muted">任务进度每 3 秒更新；取消正在处理的任务需等待当前解析步骤结束。</p></div><span id="queueState" class="badge"></span></div><div id="jobs" class="jobs"></div></section>
+        <section id="resultPanel" class="card" hidden><div class="section-heading"><div><h2>解析结果</h2><p id="resultInfo" class="muted"></p></div><div class="actions"><button id="exportMarkdown">下载 Markdown</button><button id="reviewResult" class="primary" hidden>进入原工具核对 ↗</button></div></div>
+          <div id="resultWarnings" class="warning" hidden></div><div id="sections" class="sections"></div>
+          <details class="raw-result"><summary>查看统一结构、质量报告与来源标识</summary><pre id="structuredResult"></pre></details>
+        </section>
+        <section id="eventsPanel" class="card" hidden><h2>任务事件</h2><p class="muted">保留排队、尝试次数、阶段、重试和取消的历史。</p><ol id="events" class="event-list"></ol></section>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="./workspace.js"></script>
+</body>
+</html>

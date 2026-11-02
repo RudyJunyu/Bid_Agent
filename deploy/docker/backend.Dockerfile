@@ -8,7 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     XDG_CACHE_HOME=/app/.cache
 WORKDIR /app
 COPY requirements/base.lock /tmp/base.lock
-RUN pip install --no-cache-dir -r /tmp/base.lock \
+RUN --mount=type=cache,target=/root/.cache/pip pip install --timeout 120 --retries 5 -r /tmp/base.lock \
     && groupadd --gid 10001 bid \
     && useradd --uid 10001 --gid bid --create-home bid \
     && mkdir -p /app/storage/data /app/storage/chroma /app/.cache \
@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 libgl1 libgomp1 tesseract-ocr tesseract-ocr-chi-sim \
     && rm -rf /var/lib/apt/lists/*
 COPY requirements/full.lock /tmp/full.lock
-RUN pip install --no-cache-dir -r /tmp/full.lock
+RUN --mount=type=cache,target=/root/.cache/pip pip install --timeout 120 --retries 5 -r /tmp/full.lock
 USER bid
 
 # Default lightweight image; target=full enables local AI dependencies.

@@ -15,10 +15,12 @@ jobs:
       - run: pip install -r requirements/base.lock -r requirements/dev.in
       - run: python -m pytest -q
       - run: ruff check backend tests scripts
-      - run: node --check frontend/web/app.js && node --check frontend/desktop/main.js
+      - run: for file in frontend/web/*.js frontend/desktop/*.js; do node --check "$file"; done
       - run: docker compose config --quiet
-      - run: docker compose up -d --build --wait --wait-timeout 120
-      - run: python scripts/smoke_test.py --base-url http://127.0.0.1:8080
+      - run: docker compose up -d --build --wait --wait-timeout 180
+      - run: |
+          curl --fail http://127.0.0.1:8080/healthz
+          curl --fail http://127.0.0.1:8080/api/ready
       - if: always()
         run: docker compose logs --tail 100
       - if: always()

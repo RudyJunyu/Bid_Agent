@@ -20,7 +20,7 @@ def main():
     args = parser.parse_args()
     destination = args.output_dir.resolve() / datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     running = compose('ps', '--status', 'running', '--services', capture=True).stdout.splitlines()
-    owned_running = [service for service in ('web', 'api') if service in running]
+    owned_running = [service for service in ('web', 'dispatcher', 'worker', 'api') if service in running]
     destination.mkdir(parents=True, exist_ok=False)
     (destination / 'storage').mkdir()
     try:

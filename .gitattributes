@@ -1,0 +1,2 @@
+# Keep entrypoint scripts executable by Linux shells after Windows checkouts.
+*.sh text eol=lf

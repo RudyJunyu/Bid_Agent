@@ -1,74 +1,92 @@
-# 本次改造验证记录
+# 0.3.0 验证记录
 
-日期：2026-11-02。验证针对当前工作区修改，未提交 Git commit，未发布远程服务。
+日期：2026-11-02。以下结果在本次 B01–B06 改造提交前取得，未发布远程服务。Docker 联调使用独立 Compose 项目 `bid-agent-verify`、本机端口 18089 和独立命名卷，样本均为合成文档。本轮新增及修改的测试文件、冒烟和流程验证脚本按要求保留在本地，不包含在本次提交中；34 项结果对应本地完整测试集。
 
-## 已通过
+## 已通过的检查
 
-| 验证 | 结果与范围 |
+| 验证 | 结果与实际范围 |
 |---|---|
-| Python 3.12 回归测试 | **13 passed**，使用隔离临时 SQLite，关闭真实模型和向量下载 |
-| 原接口兼容检查 | 原 25 个业务路由的方法与路径仍出现在 OpenAPI |
-| 本地解析 | 动态构造 DOCX 与原生 PDF，上传并检查解析结果 |
-| 知识库 | 新建、列表、导出、删除 |
-| 项目链路 | 入库、详情、关键词检索、目录、无模型草稿、删除 |
-| 输入边界 | 空文件 422、超限 413、服务器本地路径／output_dir 默认拒绝 |
-| 配置隔离 | 模型选择不修改进程环境，章节生成参数能传至模型构造器 |
-| 健康与 CORS | `/health`、`/ready`，默认不开放任意跨域 |
-| Python 静态检查 | Ruff F821／F822／F823／E9 通过；Python 编译检查通过 |
-| JavaScript | Web 和 Electron 入口 `node --check` 通过 |
-| Compose | `docker compose config --quiet` 通过 |
-| 前端容器 | 使用已缓存 DaoCloud Nginx 镜像构建成功，非 root、只读文件系统、cap_drop 条件下 `nginx -t` 通过 |
-| 前端 HTTP | 临时容器 `/`、`/app.js`、`/styles.css`、`/healthz` 全部返回 200；测试后已关闭容器 |
-| 历史数据完整性 | 6 个 Chroma 文件及原迁移 ZIP 的 Git blob hash 与重构前完全一致 |
-| Git 格式 | `git diff --check` 通过 |
+| Python 3.12 回归 | **34 passed**；隔离临时 SQLite，不访问用户数据、不调用付费模型 |
+| 旧接口兼容 | 原 25 条业务路由仍在 OpenAPI；原项目、知识库、检索、生成回归通过 |
+| 新原件与版本 | 字节级下载、SHA-256、重复内容复用、v1／v2 不覆盖、跨项目关系拒绝 |
+| 文件边界 | 无效格式、空文件、超限、存储路径穿越、原件缺失与哈希不一致 |
+| 任务事务 | 幂等提交、同键不同请求冲突、outbox 插入失败整体回滚 |
+| 执行与事件 | 本地 DOCX／PDF 统一结构、重复投递不重复执行、游标补读、终态 SSE |
+| 故障单元测试 | 旧租约不能覆盖新尝试、取消／重试、重试上限、超时错误脱敏、发布租约过期和消息丢失补偿 |
+| 权限单元测试 | owner／viewer／陌生用户，下载／任务／事件权限，CSRF、旧接口不可绕过、退出后 401 |
+| Docker 构建 | 默认 Python 3.12 后端镜像成功；固定 DaoCloud Nginx 摘要前端镜像成功 |
+| Compose 运行 | api／web／redis／worker／dispatcher **全部 healthy**；非 root、只读根文件系统、命名卷条件下运行 |
+| HTTP 与 Nginx | 首页、新旧 JS／CSS、健康检查、认证状态、OpenAPI 通过；`nginx -t` 通过 |
+| 真实队列 | `verify_workflow.py` 通过 HTTP → SQLite outbox → Redis → Celery → 结果落库，幂等返回同一任务，单次尝试完成 |
+| 容器重建 | 对五个服务执行 `--force-recreate` 后，原件哈希、版本记录、解析结果 ID 与正文仍一致 |
+| Redis 故障 | 停止测试 Redis 后提交解析仍返回 202，状态 queued；启动 Redis 后自动完成，无需重新提交 |
+| Worker 故障 | 12,000 段合成 DOCX 进入 running 后 SIGKILL Worker；启动后等待 60 秒租约恢复，**attempts=2**，有 recovered 事件、完整末段和唯一最终结果 |
+| 浏览器完整流程 | Chrome／Playwright 操作创建项目、上传 v1／v2、下载比对哈希、刷新恢复历史、查看结果、Markdown 下载、旧工具交接；无 JS 页面异常 |
+| 窄屏 | 390×844 视口下项目／版本正常显示，无横向溢出 |
+| Docker 登录页面 | 认证启动创建管理员；管理员登录、创建用户／项目成员、viewer 禁用写操作和旧工具、退出后 401 |
+| 冷备份 | `backup_data.py` 停止 web／dispatcher／worker／api，复制后恢复此前服务；逐文件 SHA-256、SQLite integrity_check、2 个版本及 2 条结果验证通过 |
+| 静态检查 | Ruff 配置项 F821／F822／F823／E9、所有 Web／Electron JS 的 `node --check`、Compose 配置与 `git diff --check` 通过 |
 
-测试存在一条 Starlette 关于未来 TestClient 推荐 `httpx2` 的弃用提示，不影响本次 13 项通过结果。当前测试依赖仍使用 httpx。
+pytest 有一条 Starlette 关于未来 TestClient 推荐 `httpx2` 的弃用提示，不影响 34 项通过结果。当前测试依赖仍用 httpx。
 
-前端容器验证采用本机缓存镜像：
+## 构建记录与镜像
+
+最终默认前端镜像已经统一更新为以下 DaoCloud 固定摘要，实际 Nginx **1.31.3**：
 
 ```text
 m.daocloud.io/docker.io/library/nginx@sha256:4a73073bd557c65b759505da037898b61f1be6cbcc3c2c3aeac22d2a470c1752
-实际 Nginx 版本：1.31.3
-验证镜像：bid-agent-web:verify
 ```
 
-该镜像与默认配置的 `nginx:1.28-alpine` 不同，不能将此验证表述为默认前后端镜像已全部构建成功。
+后端基于 `m.daocloud.io/docker.io/library/python:3.12-slim`，本次构建解析到：
 
-## 构建阻塞与未覆盖部分
+```text
+sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159
+```
 
-默认镜像已按要求切换至 DaoCloud。Docker Hub 和 DaoCloud 的大镜像层下载均持续缓慢；宿主机直连 DaoCloud 时出现 `image-mirror.r2.daocloud.vip` 读取超时，另一 Python 3.12 Bookworm 标签出现 TLS 握手超时。
+Redis 使用 `m.daocloud.io/docker.io/library/redis:7-alpine`。应用镜像为 `bid-agent-api:local` 与 `bid-agent-web:local`；API／Worker／Dispatcher 共用后端镜像，避免重复构建同一标签。
 
-因此 **默认 Python 3.12 后端镜像尚未完成构建，整套 Compose 的启动、代理联通、卷持久化与重启恢复尚未实测通过**。没有把本机 pytest 成功等同于整套 Docker 上线成功。重复下载／构建任务已停止，避免在后台持续占用资源。
+最初 Nginx 1.28 镜像层持续停滞，已停止该构建并切换为已有 DaoCloud 固定摘要。Python 包索引曾短暂返回无可用版本，之后又遇到读取超时；确认依赖存在后，为构建加入 pip 缓存挂载、120 秒超时与 5 次重试，后端成功构建。上述失败属于排错记录，不是最终部署仍被阻塞。
 
-以下内容也未作完成声明：
+## README 页面与终端
 
-- 完整版 OCR、Docling、Chroma、Embedding、Reranker：依赖锁文件解析成功，但未安装完整镜像或下载模型验证。
-- 真实 LLM／MinerU 调用与输出质量：本次未提供业务凭据，未执行付费外部调用。
-- 浏览器全流程交互和 Electron 安装包：已检查语法和页面资源，未进行交互自动化／打包验证。
-- 备份／恢复脚本：已编写，未对真实业务数据执行恢复演练。
-- CI：工作流已配置，未在远程 GitHub Actions 中执行。
-- 正式 DOCX／PDF 导出、权限、后台任务和版本管理：属于后续实施方案。
+- `docs/images/workspace-overview.png`：1440×1100 的真实工作台截图，包含演示项目、版本列表、已完成任务。
+- `docs/images/workspace-result.png`：实际解析结果区域截图，展开各章节；并非设计效果图。
+- 页面截图使用“智慧园区运维服务采购”合成 DOCX：第一版部署周期 30 日，第二版 45 日；下载与结果验证使用同一文件。
+- Windows／Linux 启动脚本增加 READY 横幅，只有 Compose 健康等待成功后打印，地址从实际端口映射读取。Windows 实际运行成功，Linux 脚本通过容器内 `sh -n` 检查；`.gitattributes` 保持 shell 脚本 LF 行尾。
+- 本机 8080 端口无法绑定，已将本机 `.env` 的 `BID_HTTP_PORT` 设为 18089。最终默认项目 `bid-agent` 的五个服务全部 healthy，启动脚本退出码 0，READY 横幅显示 `http://127.0.0.1:18089/`。README 摘录此次输出，省略动态列；新部署模板仍默认 8080。
+- 独立 `bid-agent-verify` 验证容器已关闭，测试数据卷保留；当前运行的是默认 `bid-agent` 项目。截图为前述独立测试环境中的合成示例，默认项目不会自动导入这些演示数据。
 
-## 下载恢复后应执行的验证
+## 本地验收命令记录
 
-在项目根目录运行：
+以下保留本轮实际使用的命令，其中测试和验证脚本的本轮改动未提交。新检出版本请按实施说明使用页面及容器健康检查验收，不能直接据此复现全部 34 项本地测试。
 
 ```bash
-docker compose --progress plain build
-docker compose up -d --wait --wait-timeout 120
+python -m pytest -q
+ruff check backend tests scripts
+docker compose config --quiet
+docker compose up -d --build --wait --wait-timeout 180
 python scripts/smoke_test.py
+python scripts/verify_workflow.py
 docker compose exec web nginx -t
 docker compose ps
 ```
 
-再创建一条专用测试知识记录，重建 API 容器并读取该记录，确认卷持久化；最后删除该测试记录。随后按部署手册进行冷备与独立项目恢复演练。
+容器重建持久化：
 
-## 本次发现并修复的具体问题
+```bash
+python scripts/verify_workflow.py --keep-project --state-file .work/workflow-state.json
+docker compose up -d --force-recreate --wait --wait-timeout 180
+python scripts/verify_workflow.py --verify-state .work/workflow-state.json
+```
 
-1. 目录迁移导致的旧 import、脚本入口与路径引用全部更新。
-2. 模型选择修改全局环境，改为请求内解析。
-3. 章节草稿请求缺少 `enable_deep_thinking`，原异常被捕获后会静默跳过模型，已补字段并覆盖测试。
-4. 本地 Word 转换分支使用 `subprocess` 却未导入，已修复；Linux 下明确提示先转 DOCX。
-5. SQLite connection context manager 不自动关闭连接，导致 Windows 测试数据库无法释放，已显式关闭。
-6. 浏览器默认接口指向本机 8000，改为当前站点 `/api`。
-7. Nginx 在只读容器中试图创建默认 FastCGI／uWSGI／SCGI 临时目录，已全部改到 `/tmp` 并重新验证。
+本地 `verify_workflow.py` 仅依赖 Python 标准库。启用认证时通过环境变量 `BID_VERIFY_USERNAME`／`BID_VERIFY_PASSWORD` 使用测试管理员。默认脚本会删除自己的项目记录；验证状态文件时需保留该项目。故障注入仅在独立测试部署执行，不能直接对正在使用的业务服务停机。
+
+## 尚未验证／未实施
+
+- 真实 MinerU／LLM 服务调用、OCR／扫描件质量、复杂跨页表格、真实招标业务验收。本轮没有使用业务密钥或付费外部调用。
+- full 镜像的 OCR／Docling／Chroma／Embedding／Reranker 推理及模型下载；本轮实测 runtime 镜像。
+- 章节级 ParsedDocument 不等于精确页坐标或逐表格结构。当前 DOCX 解析会保留表格文字，但原有解析器可能展开／重复表格内容，不能据此认定复杂表格结构已验收。
+- 冷备副本通过哈希与完整性检查；尚未把该副本导入新卷进行完整恢复／切流演练，生产恢复目标和容量指标未验证。
+- PostgreSQL／Alembic、S3、字段级证据、标书版本、正式 DOCX／PDF 成品导出仍属 B07–B16；旧分析长请求未迁入任务队列。
+- 账号找回／重置、成员撤销、统一业务审计、单点登录、企业级多租户与生产安全加固尚未完成。
+- Electron 安装包与远程 GitHub Actions 未执行。CI 保留仓库原有回归、静态检查、Compose 启动和直接 HTTP 健康检查，不依赖本轮未提交的验证脚本。

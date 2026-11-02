@@ -1,49 +1,107 @@
 name: bid-agent
+x-application: &application
+  image: bid-agent-api:${BID_IMAGE_TAG:-local}
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    BID_STORAGE_DIR: /app/storage
+    BID_DB_PATH: /app/storage/data/bid_agent.db
+    CHROMA_PERSIST_DIR: /app/storage/chroma
+    HF_HOME: /app/.cache/huggingface
+    BID_ROOT_PATH: /api
+    BID_REDIS_URL: ${BID_REDIS_URL:-redis://redis:6379/0}
+  volumes:
+    - bid-data:/app/storage
+    - model-cache:/app/.cache
+  expose:
+    - "8000"
+  restart: unless-stopped
+  init: true
+  stop_grace_period: 60s
+  read_only: true
+  tmpfs:
+    - /tmp:size=1g,mode=1777
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
 services:
   api:
-    image: bid-agent-api:${BID_IMAGE_TAG:-local}
+    <<: *application
     build:
       context: .
       dockerfile: deploy/docker/backend.Dockerfile
       target: ${BID_IMAGE_TARGET:-runtime}
       args:
         PYTHON_IMAGE: ${PYTHON_IMAGE:-m.daocloud.io/docker.io/library/python:3.12-slim}
-    env_file:
-      - path: .env
-        required: false
-    environment:
-      BID_STORAGE_DIR: /app/storage
-      BID_DB_PATH: /app/storage/data/bid_agent.db
-      CHROMA_PERSIST_DIR: /app/storage/chroma
-      HF_HOME: /app/.cache/huggingface
-      BID_ROOT_PATH: /api
+  redis:
+    image: ${REDIS_IMAGE:-m.daocloud.io/docker.io/library/redis:7-alpine}
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    user: redis
     volumes:
-      - bid-data:/app/storage
-      - model-cache:/app/.cache
-    expose:
-      - "8000"
+      - queue-data:/data
     restart: unless-stopped
-    init: true
-    stop_grace_period: 60s
     read_only: true
     tmpfs:
-      - /tmp:size=1g,mode=1777
+      - /tmp:size=32m,mode=1777
     security_opt:
       - no-new-privileges:true
-    cap_drop:
-      - ALL
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+  worker:
+    <<: *application
+    pull_policy: never
+    command: ["celery", "-A", "bid_agent.worker:app", "worker", "--loglevel=INFO", "--concurrency=1"]
+    expose: []
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A bid_agent.worker:app inspect ping --destination celery@$$HOSTNAME --timeout 3"]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+  dispatcher:
+    <<: *application
+    pull_policy: never
+    command: ["python", "-m", "bid_agent.dispatcher"]
+    expose: []
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import time; from pathlib import Path; assert time.time()-Path('/tmp/dispatcher-heartbeat').stat().st_mtime < 30"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
   web:
     image: bid-agent-web:${BID_IMAGE_TAG:-local}
     build:
       context: .
       dockerfile: deploy/docker/frontend.Dockerfile
       args:
-        NGINX_IMAGE: ${NGINX_IMAGE:-m.daocloud.io/docker.io/library/nginx:1.28-alpine}
+        NGINX_IMAGE: ${NGINX_IMAGE:-m.daocloud.io/docker.io/library/nginx@sha256:4a73073bd557c65b759505da037898b61f1be6cbcc3c2c3aeac22d2a470c1752}
     ports:
       - "${BID_BIND_HOST:-127.0.0.1}:${BID_HTTP_PORT:-8080}:8080"
     depends_on:
@@ -65,3 +123,4 @@ services:
 volumes:
   bid-data:
   model-cache:
+  queue-data:

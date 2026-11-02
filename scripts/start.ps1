@@ -12,11 +12,24 @@ try {
     }
     & docker compose config --quiet
     if ($LASTEXITCODE -ne 0) { throw 'Invalid Compose configuration.' }
-    if ($NoBuild) { & docker compose up -d --wait --wait-timeout 120 }
-    else { & docker compose up -d --build --wait --wait-timeout 120 }
+    if ($NoBuild) { & docker compose up -d --wait --wait-timeout 180 }
+    else { & docker compose up -d --build --wait --wait-timeout 180 }
     if ($LASTEXITCODE -ne 0) { throw 'Docker startup failed. Run: docker compose logs --tail 100' }
     & docker compose ps
-    Write-Host 'Open the published web port above (default: http://127.0.0.1:8080).'
+    $portOutput = @(& docker compose port web 8080)
+    if ($LASTEXITCODE -ne 0 -or $portOutput.Count -eq 0) { throw 'Cannot find the published web port.' }
+    $binding = $portOutput[0].Trim()
+    if (-not $binding) { throw 'The published web port is empty.' }
+    $browserAddress = $binding -replace '^0\.0\.0\.0:', '127.0.0.1:' -replace '^\[::\]:', '[::1]:'
+    Write-Host ''
+    Write-Host '============================================================' -ForegroundColor Cyan
+    Write-Host '  BID AGENT | READY' -ForegroundColor Green
+    Write-Host '  web / api / worker / dispatcher / redis: healthy'
+    Write-Host "  Workspace : http://$browserAddress/"
+    Write-Host "  API docs  : http://$browserAddress/api/docs"
+    Write-Host '  Next: Create project -> Upload original -> View parse result'
+    Write-Host '  Logs: docker compose logs -f --tail 100 api worker dispatcher'
+    Write-Host '============================================================' -ForegroundColor Cyan
 } finally {
     Pop-Location
 }

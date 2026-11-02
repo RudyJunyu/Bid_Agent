@@ -1,6 +1,6 @@
 # Docker 部署与运维手册
 
-当前版本是单机、单 API 实例部署。`web` 提供页面和反向代理，`api` 处理业务，SQLite 和可选 Chroma 位于命名卷。没有 Redis／PostgreSQL 服务，团队版的迁移路线见完整实施方案。
+0.3.0 使用五个服务：web（页面／反代）、api（业务与数据库初始化）、redis（消息投递）、worker（解析）、dispatcher（outbox 投递与任务恢复）。SQLite、原件和可选 Chroma 位于共享命名卷。仍是单机部署，没有 PostgreSQL；不能直接跨主机扩容。
 
 ## 1. 环境与镜像
 
@@ -9,7 +9,8 @@
 - Compose 版本至少 2.24，使用了可选 `env_file`。
 - 默认基础镜像按本次要求改用 DaoCloud：
   - `m.daocloud.io/docker.io/library/python:3.12-slim`
-  - `m.daocloud.io/docker.io/library/nginx:1.28-alpine`
+  - `m.daocloud.io/docker.io/library/nginx@sha256:4a73073bd557c65b759505da037898b61f1be6cbcc3c2c3aeac22d2a470c1752`
+  - `m.daocloud.io/docker.io/library/redis:7-alpine`
 - 初次构建需要访问镜像站和 PyPI；完整版本地模型首次使用还要访问模型仓库。
 - 基础版建议从 4 GB 内存起验证；完整 OCR／向量依赖建议 16 GB 以上并预留较多磁盘，实际用量以样本测试为准。
 
@@ -33,7 +34,7 @@ Windows PowerShell：
 Copy-Item .env.example .env
 docker compose config --quiet
 docker compose --progress plain build
-docker compose up -d --wait --wait-timeout 120
+docker compose up -d --wait --wait-timeout 180
 ```
 
 Linux／macOS：
@@ -42,7 +43,7 @@ Linux／macOS：
 cp .env.example .env
 docker compose config --quiet
 docker compose --progress plain build
-docker compose up -d --wait --wait-timeout 120
+docker compose up -d --wait --wait-timeout 180
 ```
 
 不要覆盖已有 `.env`；已有配置仅补新增字段。Windows 可直接执行 `scripts/start.ps1` 或 `run.bat`，脚本只在文件不存在时复制模板。Linux 可执行 `sh scripts/start.sh`。
@@ -59,6 +60,23 @@ Nginx 自身 `/healthz` 只证明网页服务存活；检查后端必须使用 `
 
 ## 3. 配置项
 
+### 本机模式与团队登录
+
+默认 `BID_AUTH_ENABLED=false`，只绑定回环地址，为本机单用户管理员模式。团队部署设置以下字段后重新创建容器；首次启动创建管理员，后续修改环境密码不会重置现有账号：
+
+```dotenv
+BID_AUTH_ENABLED=true
+BID_ADMIN_USERNAME=admin
+BID_ADMIN_PASSWORD=REPLACE_WITH_A_UNIQUE_PASSWORD
+# 浏览器访问 HTTPS 时设置 true；本机 HTTP 测试保持 false。
+BID_COOKIE_SECURE=false
+```
+
+密码须为 12–256 字符。登录后会话有效 12 小时。新用户创建与项目成员分配见 [权限说明](../implementation/b01-b06.md#8-权限与接口)。成员仅能使用新工作台；旧分析／知识库接口限管理员。面向团队开放绑定地址前配置 HTTPS，生产账号生命周期／审计加固仍属后续工作。
+
+### 环境变量
+
+
 | 变量 | 默认／示例 | 含义 |
 |---|---|---|
 | `BID_BIND_HOST` | `127.0.0.1` | 仅本机访问；内网地址需结合访问控制配置 |
@@ -66,7 +84,12 @@ Nginx 自身 `/healthz` 只证明网页服务存活；检查后端必须使用 `
 | `BID_IMAGE_TARGET` | `runtime` | 基础镜像；`full` 包含本地 AI 依赖 |
 | `BID_IMAGE_TAG` | `local` | 应用镜像标签，发布时改成明确版本 |
 | `PYTHON_IMAGE` | DaoCloud Python 3.12 | 可替换为私有仓库／固定 digest |
-| `NGINX_IMAGE` | DaoCloud Nginx 1.28 | 可替换为私有仓库／固定 digest |
+| `NGINX_IMAGE` | DaoCloud Nginx 1.31.3（固定摘要） | 可替换为私有仓库／固定 digest |
+| `REDIS_IMAGE` | DaoCloud Redis 7 Alpine | 消息代理镜像 |
+| `BID_REDIS_URL` | `redis://redis:6379/0` | Worker 与 Dispatcher 共用 broker；Redis 不发布宿主端口 |
+| `BID_AUTH_ENABLED` | `false` | 团队访问设置 true |
+| `BID_ADMIN_USERNAME`／`BID_ADMIN_PASSWORD` | 空 | 首次认证启动的管理员；已存在时不重置 |
+| `BID_COOKIE_SECURE` | `false` | HTTPS 时 true |
 | `LLM_API_KEY` | 空 | 模型供应商密钥 |
 | `LLM_MODEL_ID` | 空 | 供应商实际模型 ID，不能仅填界面展示名 |
 | `LLM_BASE_URL` | 空 | 兼容接口服务地址 |
@@ -129,7 +152,8 @@ docker compose exec api python scripts/reindex.py
 
 | 卷 | 容器路径 | 内容 |
 |---|---|---|
-| `bid-agent_bid-data` | `/app/storage` | SQLite、Chroma |
+| `bid-agent_bid-data` | `/app/storage` | SQLite、objects 原件、可选 Chroma |
+| `bid-agent_queue-data` | Redis `/data` | AOF 消息持久化；业务真源是 SQLite outbox |
 | `bid-agent_model-cache` | `/app/.cache` | 下载的模型缓存 |
 | tmpfs | `/tmp` | 临时解析文件，容器重建后消失 |
 
@@ -150,7 +174,7 @@ PowerShell 示例（源路径替换为已核对的备份）：
 
 ```powershell
 docker compose up -d --wait
-docker compose stop web api
+docker compose stop web dispatcher worker api
 docker compose cp .\backups\legacy\bid_agent.db api:/app/storage/data/bid_agent.db
 docker compose run --rm --no-deps --user 0 api chown -R 10001:10001 /app/storage
 docker compose up -d --wait
@@ -166,9 +190,9 @@ docker compose up -d --wait
 python scripts/backup_data.py
 ```
 
-脚本识别当前项目运行中的 web／api，停止写入，复制 `/app/storage`，生成 SHA-256 清单，并恢复此前运行的服务。默认输出 `backups/UTC时间/`。备份期间服务短暂不可用，必须在可接受窗口执行。
+脚本识别当前项目运行中的 web／dispatcher／worker／api，停止所有业务写入，复制 `/app/storage`，生成 SHA-256 清单，并恢复此前运行的服务。默认输出 `backups/UTC时间/`。备份期间服务短暂不可用，必须在可接受窗口执行。
 
-备份不包含 `.env` 和模型缓存。密钥另行保管；模型缓存可以重新下载，业务数据必须异地保存。脚本失败时不把不完整目录视作有效备份。
+备份包含 SQLite 和原件 objects；不包含 `.env`、模型缓存和 Redis 卷。Redis 投递可由数据库 outbox 恢复，恢复任务可能等待租约／重投递窗口。密钥另行保管；模型缓存可以重新下载，业务数据必须异地保存。脚本失败时不把不完整目录视作有效备份。
 
 恢复建议先使用一个**新 Compose 项目和新卷**演练，避免覆盖当前数据。PowerShell 示例：
 
@@ -179,7 +203,7 @@ docker compose -p bid-agent-restore create
 docker compose -p bid-agent-restore cp .\backups\20261102T080000Z\storage\. api:/app/storage/
 docker compose -p bid-agent-restore run --rm --no-deps --user 0 api chown -R 10001:10001 /app/storage
 docker compose -p bid-agent-restore up -d --wait
-python scripts/smoke_test.py --base-url http://127.0.0.1:18080
+Invoke-RestMethod http://127.0.0.1:18080/api/ready
 Remove-Item Env:BID_HTTP_PORT
 ```
 
@@ -196,16 +220,17 @@ Remove-Item Env:BID_HTTP_PORT
 5. 检查 health、ready、项目列表、知识库和一份样本解析。
 6. 回滚时使用上一镜像；涉及数据库结构变化则按迁移文档恢复对应备份。
 
-当前建表仍在应用启动时执行，尚无 Alembic 版本迁移。因此这一版不支持未经检查的数据库结构降级，也不应部署多个 API 实例同时初始化同一数据库。
+当前 schema 由 API 启动时追加创建，platform_migrations 记录当前版本 1，尚无 Alembic 版本迁移。因此这一版不支持未经检查的数据库结构降级，也不应部署多个 API 实例同时初始化同一数据库。
 
 ## 8. 排错与验证
 
 ```bash
 docker compose ps
-docker compose logs --tail 100 api web
+docker compose logs --tail 100 api worker dispatcher redis web
 docker compose exec api python -c "from bid_agent.core.settings import DB_PATH; print(DB_PATH)"
 docker compose exec web nginx -t
-python scripts/smoke_test.py
+curl --fail http://127.0.0.1:8080/healthz
+curl --fail http://127.0.0.1:8080/api/ready
 ```
 
 | 现象 | 检查与处理 |
@@ -218,9 +243,23 @@ python scripts/smoke_test.py
 | 容器里无法连接宿主模型 | Docker Desktop 使用 `host.docker.internal`，不要填容器自身的 `127.0.0.1` |
 | 数据库只读／Permission denied | 检查命名卷权限和导入文件的 UID/GID 10001 |
 | 上传 413 | 文件上限／Nginx 上限需一起检查 |
-| 解析过程中无进度 | 检查代理缓冲和模型状态；当前仍存在请求内执行的长任务限制 |
+| 任务一直排队 | 检查 redis、worker、dispatcher 是否 healthy；查看 dispatcher 投递日志和 worker 的 bid-parse 队列 |
+| 任务解析阶段无变化 | 进度是阶段标记；本地解析／远程服务尚未结束时不会逐页更新。检查 Worker 日志 |
+| 取消后仍在运行 | 当前解析调用结束后才终止；失联 Worker 等租约恢复 |
+| 登录后写入 403 | 刷新页面获取 CSRF；核对项目角色、Cookie 与 HTTPS 的 Secure 设置 |
 | 重建容器后数据看不到 | 检查 Compose 项目名是否改变、卷是否相同；宿主 storage 与命名卷不同 |
 | full 找不到模型／离线失败 | 模型缓存是否下载，HF_ENDPOINT 是否可用，磁盘是否足够 |
 | .doc 解析失败 | 先转换为 .docx，本地 Word COM 不支持 Linux |
 
-生产发布前还需完成认证、项目隔离、请求限流、原件持久化、任务恢复和真实样本验收。当前回环地址默认适用于本机使用和受控测试。
+本轮已有登录、项目权限、原件和解析恢复。生产发布前仍需账号生命周期、全业务审计、请求限流、真实扫描件／复杂表格评测、备份恢复及容量验收。当前回环地址默认适用于本机使用和受控测试。
+
+## 9. 本地调试后台任务
+
+优先使用 Compose，能同时验证 Linux Worker。宿主 Python 调试时，需要自行启动 Redis，在 API／Worker／Dispatcher 三个终端设置一致的 `BID_DB_PATH`、`BID_STORAGE_DIR`、`BID_REDIS_URL` 和 `PYTHONPATH=backend`。API 先启动完成建表，然后运行：
+
+```bash
+python -m celery -A bid_agent.worker:app worker --loglevel=INFO --concurrency=1
+python -m bid_agent.dispatcher
+```
+
+Windows 本机调试 Celery 可加 `--pool=solo`；该模式不能替代 Linux 生产进程池与硬超时验证。仅启动 uvicorn 不会执行新工作台的后台解析任务。

@@ -1,6 +1,6 @@
 # 项目架构梳理
 
-基于仓库代码审查；本次改造范围为工程结构与部署基础，不将计划功能计为已交付功能。
+更新至 0.3.0：在工程重组和 Docker 基础上落地 B01–B06。详细数据模型、状态机和接口见 [实施说明](../implementation/b01-b06.md)。
 
 ## 1. 原工程情况
 
@@ -14,23 +14,26 @@
 
 ```mermaid
 flowchart LR
-  Browser[浏览器 / Electron 外壳] --> Nginx[Nginx :8080]
-  Nginx -->|静态资源| Web[frontend/web]
-  Nginx -->|/api 去前缀| API[FastAPI :8000]
-  API --> Parse[文档解析与结构还原]
-  Parse --> Analysis[规则与 LLM 专项抽取]
-  Analysis --> Review[审查与清洗]
-  Review --> DB[(SQLite 持久卷)]
-  DB --> RAG[FTS / 可选 Chroma]
-  DB --> Generate[目录和章节草稿]
-  Analysis --> LLM[外部兼容接口模型服务]
-  Parse --> MinerU[可选 MinerU API]
-  RAG --> Cache[可选本地模型缓存卷]
+  Browser[浏览器 / Electron] --> Nginx[Nginx web :8080]
+  Nginx --> Web[文档工作台 / 原分析工具]
+  Nginx -->|/api| API[FastAPI api]
+  API --> Repos[Repository]
+  Repos --> DB[(SQLite WAL / 任务 / outbox)]
+  API --> Originals[(原件持久卷)]
+  DB --> Dispatcher[outbox dispatcher]
+  Dispatcher --> Redis[(Redis)]
+  Redis --> Worker[Celery worker]
+  Worker --> Originals
+  Worker -->|结果 / 状态 / 事件| DB
+  Worker --> Parse[本地 PDF / DOCX / 可选 MinerU]
+  API --> Legacy[旧分析 / 知识库 / 检索 / 标书工具]
+  Legacy --> DB
+  Legacy --> Models[可选 LLM / Chroma / 本地模型]
 ```
 
 只有 `web` 发布宿主机端口。浏览器默认请求当前站点 `/api`，部署到服务器后不会误连浏览器所在机器的 8000 端口。Nginx 禁用响应缓冲，并保留长请求读取超时，以支持原有 NDJSON 流。
 
-FastAPI 使用单 worker。数据库仍为 SQLite；完整版本地向量索引仍为 Chroma PersistentClient。不能通过增加 API 容器副本直接获得安全的分布式写入能力。
+FastAPI 使用单进程，Celery 默认并发 1；Dispatcher 独立运行。数据库仍为 SQLite；完整版本地向量索引仍为 Chroma PersistentClient。不能通过增加 API 容器副本直接获得安全的分布式写入能力。
 
 ## 3. 各层职责与边界
 
@@ -38,7 +41,8 @@ FastAPI 使用单 worker。数据库仍为 SQLite；完整版本地向量索引�
 |---|---|---|
 | `api/routes` | 参数、HTTP 返回、文档上传、项目与知识库入口 | 新业务规则进入 service；路由不写新 SQL |
 | `schemas` | Pydantic 请求／响应 | 输入上限、业务枚举、版本兼容集中定义 |
-| `services` | 抽取任务组织、阶段顺序、回退策略 | 后续抽成可恢复工作流，不绑定 HTTP 连接 |
+| `services` | 后台解析、统一结果、旧分析流程 | 将后续抽取／生成逐步迁入任务 |
+| `repositories` | 项目、知识库、权限、版本、任务和 outbox 数据访问 | B08 再引入 PostgreSQL 实现 |
 | `parsing` | 文档格式识别、PDF／Word 解析、图像信息 | 产出统一 ParsedDocument，不直接调用页面逻辑 |
 | `analysis` | 规则候选、Prompt、JSON Schema、清洗、预筛 | 证据引用与业务字段分开，不将推测写成事实 |
 | `rag` | 章节召回、关键词／向量融合、重排 | 查询必须携带项目／租户范围；索引允许重建 |
@@ -47,14 +51,26 @@ FastAPI 使用单 worker。数据库仍为 SQLite；完整版本地向量索引�
 | `infrastructure` | SQLite 访问、LLM／MinerU／SerpAPI | SDK 和外部协议不外溢到领域模型 |
 | `core` | 项目路径、环境变量、模型名称映射 | 不保留请求级全局可变模型配置 |
 | `agents` | 顺序 Plan-and-Solve 示例 | 目前不负责主业务流程，不宣称已接入主链路 |
-| `frontend/web` | 原界面浏览器化 | 后续按项目／知识库／生成／审查拆组件与状态 |
+| `frontend/web` | 新文档工作台 + 原分析界面；共享认证状态 | 后续按项目／知识库／生成／审查拆组件与状态 |
 | `frontend/desktop` | 可选网页窗口 | 无本地 Python 拉起、无 Node 渲染权限 |
 
 这是模块化单体的第一步，尚未形成严格的领域隔离。`database.py` 仍同时包含建表、数据访问和部分业务清洗；`analysis/service.py` 与 `services/analysis_workflow.py` 存在同步／流式流程重复；`documents.py` 的流式路由仍较大。后续按方案拆解，避免用“重命名目录”掩盖技术债。
 
 ## 4. 实际数据链路
 
-1. 上传文件进入临时目录。现阶段处理结束后删除临时原件，数据库只保存解析正文、分片和文件元数据，尚无持久化原件下载。
+### 文档工作台（默认入口）
+
+1. 校验登录和项目权限，保存原件到对象目录；版本元数据进入 SQLite。
+2. 创建解析任务与 outbox，HTTP 返回 202；Dispatcher 向 Redis 发布，Celery 领取。
+3. Worker 校验原件哈希，解析并规范化为 ParsedDocument；状态、结果与事件持久化。
+4. 页面轮询恢复任务进度，按版本下载原件、查看结果与 Markdown；成功结果可交接给管理员旧工具。
+5. 失联租约和未领取消息由 Dispatcher 恢复；新版本不会覆盖旧结果。
+
+### 保留的旧分析入口
+
+以下仍是旧 `/bid-documents/*` 路径的处理逻辑；它没有自动获得新任务系统的恢复能力。认证启用后这些接口仅管理员使用。
+
+1. 旧上传接口仍使用临时原件，结束后删除。需要版本与原件下载时先从新文档工作台上传。
 2. 解析策略读取样本页判断原生、扫描或混合 PDF；按策略走 pdfplumber、MinerU 或可选解析器。
 3. 文本转 Markdown，重建标题与章节，补充表格、图像与层级信息。
 4. 规则先生成项目画像和章节树，再召回商业、技术、资格、评分相关候选。

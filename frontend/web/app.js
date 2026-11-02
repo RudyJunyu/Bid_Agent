@@ -3571,3 +3571,22 @@ syncContentReviewDeepThinkingOption();
 initProjectRagFloatDrag();
 normalizeGenerationNavText();
 resetView();
+
+async function loadWorkspaceParseResult() {
+  const jobId = new URLSearchParams(location.search).get("parseJob");
+  if (!jobId) return;
+  try {
+    const response = await fetch(`${getApiBase()}/v1/jobs/${encodeURIComponent(jobId)}/result`);
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || "无法读取后台解析结果");
+    showResults();
+    setParsedSections(result.sections || []);
+    renderParseQuality(result.quality || null);
+    setWorkflowStep(2);
+    activateTab("parsed");
+    statusText.textContent = "已载入持久化解析结果，可核对原文并执行内容分析。";
+  } catch (error) {
+    statusText.textContent = `载入后台解析结果失败：${error.message}`;
+  }
+}
+loadWorkspaceParseResult();

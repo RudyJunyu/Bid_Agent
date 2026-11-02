@@ -22,5 +22,5 @@ CHROMA_DIR = resolve_path('CHROMA_PERSIST_DIR', str(STORAGE_DIR / 'chroma'))
 MAX_UPLOAD_BYTES = int(os.getenv('BID_MAX_UPLOAD_MB', '50')) * 1024 * 1024
 CORS_ORIGINS = [v.strip() for v in os.getenv('BID_CORS_ORIGINS', '').split(',') if v.strip()]
 ALLOW_SERVER_PATHS = env_bool('BID_ALLOW_SERVER_PATHS')
-BUILD_VERSION = '0.2.0'
+BUILD_VERSION = '0.3.0'
 ROOT_PATH = os.getenv('BID_ROOT_PATH', '').rstrip('/')

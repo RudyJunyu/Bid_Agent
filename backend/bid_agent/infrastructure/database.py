@@ -492,113 +492,39 @@ def list_knowledge_entries(
     query: str | None = None,
     db_path: Path = DB_PATH,
 ) -> list[dict[str, Any]]:
-    init_database(db_path)
-    sql = "select * from knowledge_entries"
-    params: list[Any] = []
-    where = []
-    if entry_type:
-        where.append("type = ?")
-        params.append(entry_type)
-    if query:
-        like = f"%{query}%"
-        where.append(
-            "(title like ? or tags like ? or date_text like ? or files like ? or content like ? or notes like ?)"
-        )
-        params.extend([like, like, like, like, like, like])
-    if where:
-        sql += " where " + " and ".join(where)
-    sql += " order by updated_at desc"
-    with _connect(db_path) as conn:
-        rows = conn.execute(sql, params).fetchall()
-    return [_knowledge_row_to_dict(row) for row in rows]
+    """Compatibility entry; new callers use repositories.knowledge."""
+    from bid_agent.repositories.knowledge import list_knowledge_entries as implementation
+    return implementation(entry_type=entry_type, query=query, db_path=db_path)
 
 
 def get_knowledge_entry(entry_id: str, db_path: Path = DB_PATH) -> dict[str, Any] | None:
-    init_database(db_path)
-    with _connect(db_path) as conn:
-        row = conn.execute("select * from knowledge_entries where id = ?", (entry_id,)).fetchone()
-    return _knowledge_row_to_dict(row) if row else None
+    """Compatibility entry; new callers use repositories.knowledge."""
+    from bid_agent.repositories.knowledge import get_knowledge_entry as implementation
+    return implementation(entry_id=entry_id, db_path=db_path)
 
 
 def upsert_knowledge_entry(data: dict[str, Any], db_path: Path = DB_PATH) -> dict[str, Any]:
-    init_database(db_path)
-    now = _now()
-    entry_id = str(data.get("id") or f"kb_{uuid4().hex}")
-    entry_type = str(data.get("type") or "company")
-    if entry_type not in KNOWLEDGE_TYPES:
-        raise ValueError(f"Unsupported knowledge type: {entry_type}")
-    title = str(data.get("title") or "").strip()
-    if not title:
-        raise ValueError("Knowledge title is required.")
-
-    existing = get_knowledge_entry(entry_id, db_path)
-    created_at = existing["createdAt"] if existing else str(data.get("createdAt") or now)
-    payload = {
-        "id": entry_id,
-        "type": entry_type,
-        "title": title,
-        "tags": str(data.get("tags") or "").strip(),
-        "date_text": str(data.get("date") or data.get("dateText") or "").strip(),
-        "files": str(data.get("files") or "").strip(),
-        "content": str(data.get("content") or "").strip(),
-        "notes": str(data.get("notes") or "").strip(),
-        "created_at": created_at,
-        "updated_at": now,
-    }
-
-    with _connect(db_path) as conn:
-        conn.execute(
-            """
-            insert into knowledge_entries
-                (id, type, title, tags, date_text, files, content, notes, created_at, updated_at)
-            values
-                (:id, :type, :title, :tags, :date_text, :files, :content, :notes, :created_at, :updated_at)
-            on conflict(id) do update set
-                type = excluded.type,
-                title = excluded.title,
-                tags = excluded.tags,
-                date_text = excluded.date_text,
-                files = excluded.files,
-                content = excluded.content,
-                notes = excluded.notes,
-                updated_at = excluded.updated_at
-            """,
-            payload,
-        )
-    entry = get_knowledge_entry(entry_id, db_path)
-    if not entry:
-        raise RuntimeError("Knowledge entry save failed.")
-    return entry
+    """Compatibility entry; new callers use repositories.knowledge."""
+    from bid_agent.repositories.knowledge import upsert_knowledge_entry as implementation
+    return implementation(data=data, db_path=db_path)
 
 
 def delete_knowledge_entry(entry_id: str, db_path: Path = DB_PATH) -> bool:
-    init_database(db_path)
-    with _connect(db_path) as conn:
-        cursor = conn.execute("delete from knowledge_entries where id = ?", (entry_id,))
-    return cursor.rowcount > 0
+    """Compatibility entry; new callers use repositories.knowledge."""
+    from bid_agent.repositories.knowledge import delete_knowledge_entry as implementation
+    return implementation(entry_id=entry_id, db_path=db_path)
 
 
 def export_knowledge_store(db_path: Path = DB_PATH) -> dict[str, list[dict[str, Any]]]:
-    entries = list_knowledge_entries(db_path=db_path)
-    store: dict[str, list[dict[str, Any]]] = {key: [] for key in KNOWLEDGE_TYPES}
-    for entry in entries:
-        store.setdefault(entry["type"], []).append(entry)
-    return store
+    """Compatibility entry; new callers use repositories.knowledge."""
+    from bid_agent.repositories.knowledge import export_knowledge_store as implementation
+    return implementation(db_path=db_path)
 
 
 def import_knowledge_store(store: dict[str, Any], db_path: Path = DB_PATH) -> int:
-    init_database(db_path)
-    count = 0
-    for entry_type, entries in (store or {}).items():
-        if entry_type not in KNOWLEDGE_TYPES or not isinstance(entries, list):
-            continue
-        for entry in entries:
-            if not isinstance(entry, dict):
-                continue
-            entry = {**entry, "type": entry.get("type") or entry_type}
-            upsert_knowledge_entry(entry, db_path)
-            count += 1
-    return count
+    """Compatibility entry; new callers use repositories.knowledge."""
+    from bid_agent.repositories.knowledge import import_knowledge_store as implementation
+    return implementation(store=store, db_path=db_path)
 
 
 PROJECT_DETAIL_TABLES = {
@@ -648,53 +574,15 @@ def list_projects(
     query: str | None = None,
     db_path: Path = DB_PATH,
 ) -> list[dict[str, Any]]:
-    init_database(db_path)
-    sql = """
-        select
-            p.*,
-            count(distinct d.id) as document_count,
-            count(distinct c.id) as chunk_count
-        from projects p
-        left join source_documents d on d.project_id = p.id
-        left join document_chunks c on c.project_id = p.id
-    """
-    params: list[Any] = []
-    if query:
-        like = f"%{query}%"
-        sql += """
-            where p.project_name like ?
-               or p.project_code like ?
-               or p.buyer_name like ?
-               or p.agency_name like ?
-        """
-        params.extend([like, like, like, like])
-    sql += " group by p.id order by p.updated_at desc, p.created_at desc"
-    with _connect(db_path) as conn:
-        rows = conn.execute(sql, params).fetchall()
-    return [_project_row_to_dict(row) for row in rows]
+    """Compatibility entry; new callers use repositories.projects."""
+    from bid_agent.repositories.projects import list_projects as implementation
+    return implementation(query=query, db_path=db_path)
 
 
 def get_project_detail(project_id: str, db_path: Path = DB_PATH) -> dict[str, Any] | None:
-    init_database(db_path)
-    with _connect(db_path) as conn:
-        project = conn.execute("select * from projects where id = ?", (project_id,)).fetchone()
-        if not project:
-            return None
-        tables: dict[str, Any] = {}
-        for table_name, title in PROJECT_DETAIL_TABLES.items():
-            order_by = _project_table_order_by(table_name)
-            rows = conn.execute(
-                f"select * from {quote_identifier(table_name)} where project_id = ? {order_by}",
-                (project_id,),
-            ).fetchall()
-            tables[table_name] = {
-                "title": title,
-                "rows": [_row_to_dict(row) for row in rows],
-            }
-    return {
-        "project": _row_to_dict(project),
-        "tables": tables,
-    }
+    """Compatibility entry; new callers use repositories.projects."""
+    from bid_agent.repositories.projects import get_project_detail as implementation
+    return implementation(project_id=project_id, db_path=db_path)
 
 
 def update_record_confirmed_status(
@@ -703,45 +591,15 @@ def update_record_confirmed_status(
     status: str,
     db_path: Path = DB_PATH,
 ) -> dict[str, Any]:
-    init_database(db_path)
-    if table_name not in CONFIRMABLE_TABLES:
-        raise ValueError(f"Table is not confirmable: {table_name}")
-    normalized_status = status if status in {"未确认", "已确认", "需复核"} else "未确认"
-    with _connect(db_path) as conn:
-        row = conn.execute(
-            f"select * from {quote_identifier(table_name)} where id = ?",
-            (record_id,),
-        ).fetchone()
-        if not row:
-            raise ValueError(f"Record not found: {record_id}")
-        conn.execute(
-            f"update {quote_identifier(table_name)} set confirmed_status = ? where id = ?",
-            (normalized_status, record_id),
-        )
-        updated = conn.execute(
-            f"select * from {quote_identifier(table_name)} where id = ?",
-            (record_id,),
-        ).fetchone()
-    return _row_to_dict(updated)
+    """Compatibility entry; new callers use repositories.projects."""
+    from bid_agent.repositories.projects import update_record_confirmed_status as implementation
+    return implementation(table_name=table_name, record_id=record_id, status=status, db_path=db_path)
 
 
 def delete_project(project_id: str, db_path: Path = DB_PATH) -> dict[str, Any]:
-    init_database(db_path)
-    deleted: dict[str, int] = {}
-    with _connect(db_path) as conn:
-        project = conn.execute("select id from projects where id = ?", (project_id,)).fetchone()
-        if not project:
-            return {"deleted": False, "tables": deleted}
-        for table_name in PROJECT_SCOPED_TABLES:
-            cursor = conn.execute(
-                f"delete from {quote_identifier(table_name)} where project_id = ?",
-                (project_id,),
-            )
-            deleted[table_name] = cursor.rowcount
-        conn.execute("delete from document_chunks_fts where project_id = ?", (project_id,))
-        cursor = conn.execute("delete from projects where id = ?", (project_id,))
-        deleted["projects"] = cursor.rowcount
-    return {"deleted": True, "tables": deleted}
+    """Compatibility entry; new callers use repositories.projects."""
+    from bid_agent.repositories.projects import delete_project as implementation
+    return implementation(project_id=project_id, db_path=db_path)
 
 
 def delete_project_record(
@@ -749,23 +607,9 @@ def delete_project_record(
     record_id: str,
     db_path: Path = DB_PATH,
 ) -> dict[str, Any]:
-    init_database(db_path)
-    if table_name not in DELETABLE_PROJECT_RECORD_TABLES:
-        raise ValueError(f"Table is not deletable: {table_name}")
-    with _connect(db_path) as conn:
-        row = conn.execute(
-            f"select * from {quote_identifier(table_name)} where id = ?",
-            (record_id,),
-        ).fetchone()
-        if not row:
-            return {"deleted": False, "record": None}
-        cursor = conn.execute(
-            f"delete from {quote_identifier(table_name)} where id = ?",
-            (record_id,),
-        )
-        if table_name == "document_chunks":
-            conn.execute("delete from document_chunks_fts where chunk_id = ?", (record_id,))
-    return {"deleted": cursor.rowcount > 0, "record": _row_to_dict(row)}
+    """Compatibility entry; new callers use repositories.projects."""
+    from bid_agent.repositories.projects import delete_project_record as implementation
+    return implementation(table_name=table_name, record_id=record_id, db_path=db_path)
 
 
 def save_analysis_result(
@@ -911,6 +755,7 @@ def list_database_tables(db_path: Path = DB_PATH) -> list[dict[str, Any]]:
 def _connect(db_path: Path) -> Iterator[sqlite3.Connection]:
     conn = sqlite3.connect(db_path, timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute('PRAGMA foreign_keys=ON')
     try:
         with conn:
             yield conn

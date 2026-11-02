@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from bid_agent.infrastructure.database import get_project_detail
+from bid_agent.repositories.projects import get_project_detail
 
 
 def generate_bid_outline(project_id: str) -> dict[str, Any]:

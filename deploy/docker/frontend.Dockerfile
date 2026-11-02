@@ -1,4 +1,4 @@
-ARG NGINX_IMAGE=m.daocloud.io/docker.io/library/nginx:1.28-alpine
+ARG NGINX_IMAGE=m.daocloud.io/docker.io/library/nginx@sha256:4a73073bd557c65b759505da037898b61f1be6cbcc3c2c3aeac22d2a470c1752
 FROM ${NGINX_IMAGE}
 COPY deploy/nginx/nginx.conf /etc/nginx/nginx.conf
 COPY frontend/web /usr/share/nginx/html

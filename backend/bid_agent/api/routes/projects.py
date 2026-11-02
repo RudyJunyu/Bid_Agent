@@ -1,7 +1,8 @@
 """Extracted from the original API; public request contracts are retained."""
 from typing import Optional
 from fastapi import HTTPException
-from bid_agent.infrastructure.database import DB_PATH, delete_project, delete_project_record, get_project_detail, list_database_tables, list_projects, update_record_confirmed_status
+from bid_agent.infrastructure.database import DB_PATH, list_database_tables
+from bid_agent.repositories.projects import delete_project, delete_project_record, get_project_detail, list_projects, update_record_confirmed_status
 from fastapi import APIRouter
 from bid_agent.services.analysis_workflow import (
     _build_llm,

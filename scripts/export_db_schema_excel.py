@@ -11,13 +11,13 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "backend"))
 
-from bid_database import DB_PATH, init_database  # noqa: E402
+from bid_agent.infrastructure.database import DB_PATH, init_database  # noqa: E402
 
 
-OUTPUT_PATH = ROOT / "docs" / "招投标智能体数据库表结构.xlsx"
-DESIGN_DOC_PATH = ROOT / "DATABASE_SCHEMA_DESIGN.md"
+OUTPUT_PATH = ROOT / "docs" / "database" / "招投标智能体数据库表结构.xlsx"
+DESIGN_DOC_PATH = ROOT / "docs" / "database" / "schema-design.md"
 
 
 TABLE_DESCRIPTIONS = {

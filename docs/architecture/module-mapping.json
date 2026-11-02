@@ -1,0 +1,23 @@
+{
+  "bid_analysis_prompts": "bid_agent.analysis.prompts",
+  "bid_analysis_service": "bid_agent.analysis.service",
+  "bid_database": "bid_agent.infrastructure.database",
+  "bid_document_parser": "bid_agent.parsing.document_parser",
+  "bid_image_analysis": "bid_agent.parsing.image_analysis",
+  "bid_parse_strategy": "bid_agent.parsing.strategy",
+  "bid_qualification_prefilter": "bid_agent.analysis.qualification_prefilter",
+  "bid_rule_extractor": "bid_agent.analysis.rule_extractor",
+  "bid_structured_extraction": "bid_agent.analysis.structured_extraction",
+  "extraction_cleaner": "bid_agent.analysis.cleaner",
+  "bid_section_retriever": "bid_agent.rag.section_retriever",
+  "bid_vector_store": "bid_agent.rag.vector_store",
+  "bid_outline_generator": "bid_agent.generation.outline",
+  "bid_section_writer": "bid_agent.generation.section_writer",
+  "content_review_agent": "bid_agent.review.content_review",
+  "llm_client": "bid_agent.infrastructure.llm_client",
+  "llm_model_config": "bid_agent.core.model_config",
+  "MinerU_pdf_parse_tool": "bid_agent.infrastructure.mineru",
+  "SerpApi_search_tool": "bid_agent.infrastructure.search",
+  "plan_and_solve_agent": "bid_agent.agents.plan_and_solve",
+  "run_plan_and_solve": "bid_agent.cli"
+}

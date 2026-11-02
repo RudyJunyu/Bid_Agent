@@ -1,0 +1,37 @@
+{
+  "name": "bid-parser-electron-client",
+  "productName": "投标",
+  "description": "Optional desktop shell for the Docker-hosted Bid Agent web application",
+  "author": "",
+  "version": "0.1.1",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable"
+  },
+  "build": {
+    "appId": "com.bidtool",
+    "productName": "投标",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "package.json"
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        "portable"
+      ]
+    },
+    "portable": {
+      "artifactName": "投标-${version}.exe"
+    }
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  }
+}

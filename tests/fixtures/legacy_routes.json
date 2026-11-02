@@ -1,0 +1,127 @@
+[
+  {
+    "method": "GET",
+    "path": "/knowledge/types",
+    "handler": "get_knowledge_types"
+  },
+  {
+    "method": "GET",
+    "path": "/database/tables",
+    "handler": "get_database_tables"
+  },
+  {
+    "method": "GET",
+    "path": "/projects",
+    "handler": "get_projects"
+  },
+  {
+    "method": "GET",
+    "path": "/projects/{project_id}",
+    "handler": "get_project"
+  },
+  {
+    "method": "POST",
+    "path": "/vector/search",
+    "handler": "vector_search"
+  },
+  {
+    "method": "GET",
+    "path": "/projects/{project_id}/bid-outline",
+    "handler": "get_project_bid_outline"
+  },
+  {
+    "method": "GET",
+    "path": "/projects/bid-outline/{project_id}",
+    "handler": "get_project_bid_outline_alias"
+  },
+  {
+    "method": "POST",
+    "path": "/projects/{project_id}/bid-section-draft",
+    "handler": "create_project_bid_section_draft"
+  },
+  {
+    "method": "POST",
+    "path": "/projects/bid-section-draft/{project_id}",
+    "handler": "create_project_bid_section_draft_alias"
+  },
+  {
+    "method": "POST",
+    "path": "/projects/records/{table_name}/{record_id}/confirm",
+    "handler": "confirm_project_record"
+  },
+  {
+    "method": "DELETE",
+    "path": "/projects/{project_id}",
+    "handler": "remove_project"
+  },
+  {
+    "method": "DELETE",
+    "path": "/projects/records/{table_name}/{record_id}",
+    "handler": "remove_project_record"
+  },
+  {
+    "method": "GET",
+    "path": "/knowledge/entries",
+    "handler": "get_knowledge_entries"
+  },
+  {
+    "method": "POST",
+    "path": "/knowledge/entries",
+    "handler": "save_knowledge_entry"
+  },
+  {
+    "method": "DELETE",
+    "path": "/knowledge/entries/{entry_id}",
+    "handler": "remove_knowledge_entry"
+  },
+  {
+    "method": "GET",
+    "path": "/knowledge/export",
+    "handler": "export_knowledge"
+  },
+  {
+    "method": "POST",
+    "path": "/knowledge/import",
+    "handler": "import_knowledge"
+  },
+  {
+    "method": "POST",
+    "path": "/bid-documents/parse",
+    "handler": "parse_document"
+  },
+  {
+    "method": "POST",
+    "path": "/bid-documents/upload",
+    "handler": "upload_document"
+  },
+  {
+    "method": "POST",
+    "path": "/bid-documents/analyze",
+    "handler": "analyze_document"
+  },
+  {
+    "method": "POST",
+    "path": "/bid-documents/analyze-content",
+    "handler": "analyze_edited_content"
+  },
+  {
+    "method": "POST",
+    "path": "/bid-documents/content-review",
+    "handler": "review_extracted_content"
+  },
+  {
+    "method": "POST",
+    "path": "/bid-documents/upload-analyze",
+    "handler": "upload_and_analyze_document"
+  },
+  {
+    "method": "POST",
+    "path": "/bid-documents/upload-analyze-stream",
+    "handler": "upload_and_analyze_document_stream"
+  },
+  {
+    "method": "POST",
+    "path": "/bid-documents/analyze-content-stream",
+    "handler": "analyze_edited_content_stream"
+  }
+]

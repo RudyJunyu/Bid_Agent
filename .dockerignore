@@ -1,0 +1,17 @@
+**
+!backend/
+!backend/**
+!requirements/
+!requirements/*.lock
+!frontend/
+!frontend/web/
+!frontend/web/**
+!deploy/
+!deploy/docker/
+!deploy/docker/**
+!deploy/nginx/
+!deploy/nginx/**
+!scripts/
+!scripts/reindex.py
+**/__pycache__/
+**/*.pyc

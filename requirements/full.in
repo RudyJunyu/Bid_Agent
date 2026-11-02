@@ -1,0 +1,9 @@
+# Optional local OCR, Docling, embedding and reranking. Resolve with base.in.
+numpy>=1.26,<2
+opencv-python-headless>=4.10,<4.12
+docling>=2.70,<3
+rapidocr-onnxruntime>=1.3,<2
+pytesseract>=0.3.10,<1
+chromadb>=1,<2
+sentence-transformers>=3,<6
+serpapi>=0.1.5,<1

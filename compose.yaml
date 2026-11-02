@@ -1,0 +1,67 @@
+name: bid-agent
+services:
+  api:
+    image: bid-agent-api:${BID_IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: deploy/docker/backend.Dockerfile
+      target: ${BID_IMAGE_TARGET:-runtime}
+      args:
+        PYTHON_IMAGE: ${PYTHON_IMAGE:-m.daocloud.io/docker.io/library/python:3.12-slim}
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      BID_STORAGE_DIR: /app/storage
+      BID_DB_PATH: /app/storage/data/bid_agent.db
+      CHROMA_PERSIST_DIR: /app/storage/chroma
+      HF_HOME: /app/.cache/huggingface
+      BID_ROOT_PATH: /api
+    volumes:
+      - bid-data:/app/storage
+      - model-cache:/app/.cache
+    expose:
+      - "8000"
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 60s
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  web:
+    image: bid-agent-web:${BID_IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: deploy/docker/frontend.Dockerfile
+      args:
+        NGINX_IMAGE: ${NGINX_IMAGE:-m.daocloud.io/docker.io/library/nginx:1.28-alpine}
+    ports:
+      - "${BID_BIND_HOST:-127.0.0.1}:${BID_HTTP_PORT:-8080}:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  bid-data:
+  model-cache:

@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=75,<82"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bid-agent"
+version = "0.2.0"
+description = "Bid document analysis and generation workspace"
+requires-python = ">=3.11,<3.13"
+dynamic = ["dependencies"]
+
+[project.scripts]
+bid-agent = "bid_agent.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "backend"}
+
+[tool.setuptools.packages.find]
+where = ["backend"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements/base.in"]}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["backend"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["F821", "F822", "F823", "E9"]

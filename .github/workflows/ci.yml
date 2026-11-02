@@ -1,0 +1,25 @@
+name: Validate
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements/*.lock
+      - run: pip install -r requirements/base.lock -r requirements/dev.in
+      - run: python -m pytest -q
+      - run: ruff check backend tests scripts
+      - run: node --check frontend/web/app.js && node --check frontend/desktop/main.js
+      - run: docker compose config --quiet
+      - run: docker compose up -d --build --wait --wait-timeout 120
+      - run: python scripts/smoke_test.py --base-url http://127.0.0.1:8080
+      - if: always()
+        run: docker compose logs --tail 100
+      - if: always()
+        run: docker compose down

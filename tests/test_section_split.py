@@ -62,5 +62,5 @@ def test_split_and_consolidate_reduces_page_noise():
     assert any('第二章' in title for title in titles)
     # Value-bearing numbered lines should live in content, not as their own sections.
     assert '1.1项目编号：安财招标采购-2026-23' not in titles
-    chapter_one = next(section for section in sections if '第一章' in section.title)
-    assert '安财招标采购-2026-23' in (chapter_one.content or chapter_one.markdown)
+    basics = next(section for section in sections if '项目基本情况' in section.title)
+    assert '安财招标采购-2026-23' in (basics.content or basics.markdown)

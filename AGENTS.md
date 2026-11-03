@@ -15,7 +15,7 @@
 Bid_Agent/
 ├── frontend/
 │   ├── web/                     # 浏览器静态页：工作台 + 原分析工具
-│   │   ├── workspace.html/.js   # 默认首页：项目、原件、版本、任务
+│   │   ├── workspace.html/.js   # 默认首页：原件、要求、闸门、审查、导出
 │   │   ├── index.html/app.js    # 旧分析／知识库／标书工具
 │   │   ├── api.js               # 同源 /api 客户端
 │   │   └── legacy-session.js    # 认证会话与 CSRF 共享
@@ -25,16 +25,17 @@ Bid_Agent/
 │   ├── worker.py                # Celery 解析任务消费者
 │   ├── dispatcher.py            # outbox 发布与失联任务恢复
 │   ├── cli.py                   # 可选 Plan-and-Solve 命令行入口
-│   ├── api/routes/              # HTTP：auth／workspace／documents／projects／knowledge／health
-│   ├── repositories/            # SQLite 仓储：projects／knowledge／workspace／jobs／platform
+│   ├── api/routes/              # auth／workspace／requirements／stages／bids／reviews…
+│   ├── repositories/            # workspace／jobs／requirements／stages／bids／compliance
 │   ├── schemas/                 # Pydantic：请求模型与 ParsedDocument
-│   ├── services/                # 应用服务：parse_jobs／document_parser／analysis_workflow
+│   ├── services/                # 解析、要求抽取、目录、审查、导出、分析编排
+│   ├── compliance/              # 可插拔合规检查（规则优先）
 │   ├── parsing/                 # PDF／DOCX／策略与图像元数据
 │   ├── analysis/                # 规则、Prompt、专项抽取与清洗
 │   ├── rag/                     # FTS／可选 Chroma 与章节召回
 │   ├── generation/              # 目录与章节草稿
-│   ├── review/                  # 内容辅助审查
-│   ├── infrastructure/          # database／object_store／llm／mineru／search
+│   ├── review/                  # 旧内容辅助审查
+│   ├── infrastructure/          # database／object_store／llm／docx_export／mineru
 │   ├── core/                    # settings／security／identity／model_config
 │   └── agents/                  # Plan-and-Solve 示例（未接入主业务链路）
 ├── deploy/
@@ -51,11 +52,11 @@ Bid_Agent/
 └── .env.example
 ```
 
-**当前版本 0.3.0。** 已落地 B01–B06：Repository 拆分、原件对象存储与不可覆盖版本、任务表／outbox／Redis／Celery、统一 `ParsedDocument`、登录与项目角色骨架、文档工作台。主业务调用链：
+**当前版本 0.3.0。** 已落地 B01–B06：Repository 拆分、原件对象存储与不可覆盖版本、任务表／outbox／Redis／Celery、统一 `ParsedDocument`、登录与项目角色骨架、文档工作台。另有 B07 要求清单草案，以及阶段闸门／评分对齐目录／合规审查／DOCX 导出骨架（SQLite `platform_migrations` v3，见 [bid-pipeline](docs/implementation/bid-pipeline.md)）。主业务调用链：
 
 `api/routes` → `services` → `repositories`／`infrastructure` → SQLite WAL 与本地对象目录；解析任务另经 `dispatcher` → Redis → `worker` → `services.document_parser` → `parsing`。
 
-旧分析长请求仍走 `services/analysis_workflow` 与 `api/routes/documents`，尚未全部迁入任务队列。PostgreSQL／Alembic、S3、字段级证据、标书服务端版本、正式 DOCX／PDF 导出属 B07–B16，见 [完整实施方案](docs/project-completion-plan.md)。
+旧分析长请求仍走 `services/analysis_workflow` 与 `api/routes/documents`，尚未全部迁入任务队列。PostgreSQL／Alembic、S3、企业资产、PDF 转换 Worker 等仍属 B08–B16，见 [完整实施方案](docs/project-completion-plan.md)。
 
 Compose 五服务：仅 `web`（Nginx）发布宿主机端口；`api`／`worker`／`dispatcher` 共用后端镜像与 `bid-data` 卷；`redis` 独立卷。默认 API 单进程、Worker 并发 1；不能用网络文件系统共享 SQLite 做多主机写扩容。
 
@@ -66,6 +67,7 @@ Compose 五服务：仅 `web`（Nginx）发布宿主机端口；`api`／`worker`
 | 产品范围、阶段与验收 | [完整实施方案](docs/project-completion-plan.md) |
 | B01–B06 数据模型、状态机、权限与接口边界 | [实施说明](docs/implementation/b01-b06.md) |
 | B07 结构化要求与证据（草稿） | [B07 草稿](docs/implementation/b07-draft.md) |
+| 闸门／目录／审查／DOCX 闭环骨架 | [bid-pipeline](docs/implementation/bid-pipeline.md) |
 | 本轮增量改动说明（给接手伙伴） | [改动说明](docs/改动说明.md) |
 | 模块职责、新旧链路与技术债 | [架构梳理](docs/architecture/overview.md) |
 | Compose、认证、备份恢复与排错 | [Docker 部署手册](docs/deployment/docker.md) |

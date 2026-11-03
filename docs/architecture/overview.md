@@ -65,6 +65,7 @@ FastAPI 使用单进程，Celery 默认并发 1；Dispatcher 独立运行。数�
 3. Worker 校验原件哈希，解析并规范化为 ParsedDocument；状态、结果与事件持久化。
 4. 页面轮询恢复任务进度，按版本下载原件、查看结果与 Markdown；成功结果可交接给管理员旧工具。
 5. 失联租约和未领取消息由 Dispatcher 恢复；新版本不会覆盖旧结果。
+6. B07 要求清单抽取／确认后，经 `project_stages` 闸门进入评分对齐目录（`bid_versions`）、合规审查（`compliance_*`）与同步 DOCX 导出；详见 [bid-pipeline](../implementation/bid-pipeline.md)。
 
 ### 保留的旧分析入口
 

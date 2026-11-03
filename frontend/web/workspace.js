@@ -5,6 +5,7 @@ const $ = (id) => document.getElementById(id);
 const state = {
   user: null, auth: false, projects: [], documents: [], jobs: [], projectId: "", selectedJob: "",
   result: null, refreshing: false, requirements: [], requirementsVersionId: "", requirementCategory: "overview",
+  stages: [], bidVersions: [], selectedBidId: "", findings: [], exports: [],
 };
 const labels = { queued: "排队中", running: "解析中", retry_wait: "等待重试", succeeded: "已完成", failed: "失败", cancelling: "取消中", cancelled: "已取消" };
 const stages = { queued: "等待 Worker 领取", starting: "开始处理", verifying_source: "校验原件", parsing: "解析文档", normalizing: "统一结构", succeeded: "完成", failed: "失败", cancelled: "已取消", cancelling: "等待当前步骤结束", retry_wait: "等待自动重试" };
@@ -98,11 +99,24 @@ async function selectProject(id) {
     state.jobs = [];
     state.requirements = [];
     state.requirementsVersionId = "";
+    state.stages = [];
+    state.bidVersions = [];
+    state.selectedBidId = "";
+    state.findings = [];
+    state.exports = [];
     renderDocuments();
     renderJobs();
     renderRequirements();
+    renderStages();
+    renderBids();
+    renderFindings();
+    renderExports();
     $("resultPanel").hidden = true;
     $("requirementsPanel").hidden = true;
+    $("pipelinePanel").hidden = true;
+    $("outlinePanel").hidden = true;
+    $("reviewPanel").hidden = true;
+    $("exportPanel").hidden = true;
     $("eventsPanel").hidden = true;
   }
   state.projectId = id;
@@ -133,6 +147,7 @@ async function refreshProject() {
   if (documentsChanged) { renderProjects(); renderDocuments(); }
   if (jobsChanged) renderJobs();
   if (state.selectedJob) await viewJob(state.selectedJob, true);
+  await loadPipeline(true);
 }
 
 function renderDocuments() {
@@ -424,8 +439,12 @@ $("projectForm").addEventListener("submit", async (event) => {
     const created = await api.request("/v1/projects", { method: "POST", body: { title: $("projectTitle").value.trim() } });
     state.projectId = ""; state.selectedJob = ""; state.result = null;
     state.requirements = []; state.requirementsVersionId = "";
+    state.stages = []; state.bidVersions = []; state.selectedBidId = "";
+    state.findings = []; state.exports = [];
     localStorage.setItem("bid.workspace.project", created.id);
     $("resultPanel").hidden = true; $("requirementsPanel").hidden = true; $("eventsPanel").hidden = true;
+    $("pipelinePanel").hidden = true; $("outlinePanel").hidden = true;
+    $("reviewPanel").hidden = true; $("exportPanel").hidden = true;
     $("projectTitle").value = ""; await loadProjects();
   }
   catch (error) { handleError(error); }
@@ -493,6 +512,200 @@ $("reviewResult").addEventListener("click", () => {
   // Store only a durable job reference; large results stay on the server.
   location.href = `./index.html?parseJob=${encodeURIComponent(state.result.jobId)}`;
 });
+
+async function loadPipeline(quiet = false) {
+  if (!state.projectId) return;
+  const projectId = state.projectId;
+  const [stages, bids, findings, exports] = await Promise.all([
+    api.request(`/v1/projects/${projectId}/stages`),
+    api.request(`/v1/projects/${projectId}/bid-versions`),
+    api.request(`/v1/projects/${projectId}/review-findings`),
+    api.request(`/v1/projects/${projectId}/exports`),
+  ]);
+  if (projectId !== state.projectId) return;
+  state.stages = stages.stages || [];
+  state.bidVersions = bids.bid_versions || [];
+  if (!state.selectedBidId && state.bidVersions.length) state.selectedBidId = state.bidVersions[0].id;
+  state.findings = findings.findings || [];
+  state.exports = exports.exports || [];
+  $("pipelinePanel").hidden = false;
+  $("outlinePanel").hidden = false;
+  $("reviewPanel").hidden = false;
+  $("exportPanel").hidden = false;
+  renderStages();
+  renderBids();
+  renderFindings();
+  renderExports();
+  if (!quiet) notify("已刷新阶段、目录、审查与导出");
+}
+
+function renderStages() {
+  const container = $("stageList");
+  if (!container) return;
+  container.replaceChildren();
+  for (const stage of state.stages) {
+    const row = element("div", "", "stage-item");
+    const meta = element("div", "", "stage-meta");
+    meta.append(
+      element("strong", stage.label || stage.stage),
+      element("div", `${stage.stage} · ${stage.notes || "无备注"}`, "muted"),
+    );
+    const actions = element("div", "", "actions");
+    actions.append(element("span", stage.status, `state state-${stage.status}`));
+    if (canEdit()) {
+      if (!stage.passed) {
+        actions.append(action("通过", async () => {
+          await api.request(`/v1/projects/${state.projectId}/stages/${stage.stage}`, {
+            method: "POST", body: { status: "passed", notes: "工作台确认" },
+          });
+          await loadPipeline(true);
+        }));
+      } else {
+        actions.append(action("重置", async () => {
+          await api.request(`/v1/projects/${state.projectId}/stages/${stage.stage}`, { method: "DELETE" });
+          await loadPipeline(true);
+        }));
+      }
+    }
+    row.append(meta, actions);
+    container.append(row);
+  }
+  if (!state.stages.length) container.append(element("p", "选择项目后显示阶段闸门。", "empty-list"));
+}
+
+function renderBids() {
+  const container = $("bidVersions");
+  if (!container) return;
+  container.replaceChildren();
+  $("buildOutline").disabled = !canEdit();
+  for (const item of state.bidVersions) {
+    const row = element("article", "", "bid-item");
+    const rate = item.score_coverage?.coverage_rate;
+    row.append(element("div", `${item.title} · ${item.id}${rate == null ? "" : ` · 覆盖 ${(Number(rate) * 100).toFixed(0)}%`}`));
+    const actions = element("div", "", "actions");
+    actions.append(action(item.id === state.selectedBidId ? "当前版本" : "选用", async () => {
+      state.selectedBidId = item.id;
+      const detail = await api.request(`/v1/bid-versions/${item.id}`);
+      $("outlinePreview").textContent = detail.outline_markdown || "";
+      $("outlineInfo").textContent = `${item.id} · 覆盖 ${((detail.score_coverage?.coverage_rate || 0) * 100).toFixed(0)}%`;
+      renderBids();
+    }));
+    row.append(actions);
+    container.append(row);
+  }
+  if (!state.bidVersions.length) {
+    $("outlinePreview").textContent = "";
+    container.append(element("p", "尚未保存目录版本。通过要求闸门后可生成。", "empty-list"));
+  }
+}
+
+function renderFindings() {
+  const container = $("reviewFindings");
+  if (!container) return;
+  container.replaceChildren();
+  $("runReview").disabled = !canEdit();
+  const open = state.findings.filter((item) => item.decision_status === "open");
+  $("reviewInfo").textContent = `共 ${state.findings.length} 条发现，其中待处理 ${open.length} 条`;
+  for (const item of state.findings.slice(0, 40)) {
+    const card = element("article", "", "finding");
+    card.append(element("div", `${item.title} · ${item.check_name}`, `finding-title sev-${item.severity}`));
+    card.append(element("div", item.detail || "", "muted"));
+    const actions = element("div", "", "actions");
+    actions.append(element("span", item.decision_status, `state state-${item.decision_status === "open" ? "pending" : "confirmed"}`));
+    if (canEdit() && item.decision_status === "open") {
+      for (const status of [["accepted", "接受"], ["waived", "豁免"], ["fixed", "已修复"]]) {
+        actions.append(action(status[1], async () => {
+          await api.request(`/v1/review-findings/${item.id}/decide`, {
+            method: "POST", body: { decision_status: status[0], notes: "工作台处理" },
+          });
+          await loadPipeline(true);
+        }));
+      }
+    }
+    card.append(actions);
+    container.append(card);
+  }
+  if (!state.findings.length) container.append(element("p", "尚未运行审查。", "empty-list"));
+}
+
+function renderExports() {
+  const container = $("exportList");
+  if (!container) return;
+  container.replaceChildren();
+  $("exportDocx").disabled = !canEdit();
+  for (const item of state.exports) {
+    const row = element("article", "", "export-item");
+    row.append(element("div", `${item.file_name} · ${(item.size_bytes / 1024).toFixed(1)} KB · ${formatTime(item.created_at)}`));
+    const link = element("a", "下载 DOCX");
+    link.href = `${api.base}/v1/exports/${item.id}/download`;
+    row.append(link);
+    container.append(row);
+  }
+  if (!state.exports.length) container.append(element("p", "尚无导出物。", "empty-list"));
+}
+
+$("reloadStages").addEventListener("click", () => loadPipeline().catch(handleError));
+$("reloadBids").addEventListener("click", () => loadPipeline(true).catch(handleError));
+$("reloadFindings").addEventListener("click", () => loadPipeline(true).catch(handleError));
+$("reloadExports").addEventListener("click", () => loadPipeline(true).catch(handleError));
+$("reloadMineru").addEventListener("click", async () => {
+  try {
+    const data = await api.request("/v1/integrations/mineru");
+    $("mineruStatus").textContent = data.configured
+      ? `MinerU：已配置（${data.token_masked}），超时 ${data.timeout}s`
+      : "MinerU：未配置 token（仅影响扫描件／远程解析）";
+  } catch (error) { handleError(error); }
+});
+$("buildOutline").addEventListener("click", async () => {
+  if (!state.projectId) return;
+  $("buildOutline").disabled = true;
+  try {
+    const body = {};
+    if (state.requirementsVersionId) body.document_version_id = state.requirementsVersionId;
+    const data = await api.request(`/v1/projects/${state.projectId}/outline/from-requirements`, {
+      method: "POST", body,
+    });
+    state.selectedBidId = data.bid_version?.id || state.selectedBidId;
+    $("outlinePreview").textContent = data.outline_markdown || "";
+    notify(`目录已保存，评分覆盖 ${((data.score_coverage?.coverage_rate || 0) * 100).toFixed(0)}%`);
+    await loadPipeline(true);
+  } catch (error) { handleError(error); }
+  finally { $("buildOutline").disabled = !canEdit(); }
+});
+$("runReview").addEventListener("click", async () => {
+  if (!state.projectId) return;
+  $("runReview").disabled = true;
+  try {
+    const body = {
+      use_llm: Boolean($("useLlmReview").checked),
+      bid_version_id: state.selectedBidId || null,
+      document_version_id: state.requirementsVersionId || state.result?.document_version_id || null,
+    };
+    const run = await api.request(`/v1/projects/${state.projectId}/review-runs`, { method: "POST", body });
+    notify(`审查完成：${run.summary?.finding_count || 0} 条，风险 ${run.summary?.risk_level || "-"}`);
+    await loadPipeline(true);
+  } catch (error) { handleError(error); }
+  finally { $("runReview").disabled = !canEdit(); }
+});
+$("exportDocx").addEventListener("click", async () => {
+  if (!state.projectId || !state.selectedBidId) return notify("请先生成并选用目录版本", true);
+  $("exportDocx").disabled = true;
+  try {
+    const data = await api.request(`/v1/projects/${state.projectId}/export-jobs`, {
+      method: "POST",
+      body: {
+        bid_version_id: state.selectedBidId,
+        force_skip_gate: Boolean($("forceExport").checked),
+        notes: $("exportNotes").value.trim(),
+        bidder_name: $("bidderName").value.trim(),
+      },
+    });
+    notify(`已导出 ${data.artifact?.file_name || "DOCX"}`);
+    await loadPipeline(true);
+  } catch (error) { handleError(error); }
+  finally { $("exportDocx").disabled = !canEdit(); }
+});
+
 setInterval(async () => {
   if (!state.user || !state.projectId || state.refreshing || document.hidden) return;
   state.refreshing = true;

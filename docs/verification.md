@@ -123,12 +123,22 @@ python scripts/eval_requirement_recall.py \
 - 黄金召回：概览 9/9、资格 4/4、废标 3/3（与 rule-v2 同档）；快照见 `docs/samples/golden/01-anyang-zhengwu-yunwei.hybrid.recall.json`。
 - 实现注意：避免 SiliconFlow `json_schema` 长挂起，精抽改为普通 chat JSON；`LLM_TIMEOUT=300`。
 
+### 投标闭环骨架（2026-11-03 23:53）
+
+单元／API（隔离临时库，无外部模型）：
+
+- `test_json_repair`：fence／think 标签／正文内嵌 JSON。
+- `test_score_coverage`：评分矩阵行与目录覆盖率。
+- `test_bid_pipeline`：未开闸门拒建目录；开 requirements → 保存 `bid_version` → 审查 findings → 开 check → 导出 DOCX（PK 头）并鉴权下载；MinerU 状态只读。
+
+未覆盖：真实业务样例端到端截图、LibreOffice PDF、LLM 审查实调、工作台浏览器回归。
+
 ## 尚未验证／未实施
 
 - 真实 MinerU／LLM 服务调用、OCR／扫描件质量、复杂跨页表格、真实招标业务验收。本轮没有使用业务密钥或付费外部调用。
 - full 镜像的 OCR／Docling／Chroma／Embedding／Reranker 推理及模型下载；本轮实测 runtime 镜像。
 - 章节级 ParsedDocument 不等于精确页坐标或逐表格结构。当前 DOCX 解析会保留表格文字，但原有解析器可能展开／重复表格内容，不能据此认定复杂表格结构已验收。
 - 冷备副本通过哈希与完整性检查；尚未把该副本导入新卷进行完整恢复／切流演练，生产恢复目标和容量指标未验证。
-- PostgreSQL／Alembic、S3、标书版本、正式 DOCX／PDF 成品导出仍属后续。B07 规则／hybrid 精抽、要求清单 UI 与安阳单样本召回已有记录，不等于方案级字段验收完成。旧分析长请求与 LLM 精抽均未迁入任务队列（精抽仍为同步请求，约 1–2 分钟）。
+- PostgreSQL／Alembic、S3、PDF 转换 Worker、完整标书协同编辑仍属后续。同步 DOCX 导出与阶段闸门已有 API 回归，不等于排版黄金样本与业务签字验收。B07 规则／hybrid 精抽、要求清单 UI 与安阳单样本召回已有记录，不等于方案级字段验收完成。旧分析长请求与 LLM 精抽均未迁入任务队列（精抽仍为同步请求，约 1–2 分钟）。
 - 账号找回／重置、成员撤销、统一业务审计、单点登录、企业级多租户与生产安全加固尚未完成。
 - Electron 安装包与远程 GitHub Actions 未执行。CI 保留仓库原有回归、静态检查、Compose 启动和直接 HTTP 健康检查，不依赖本轮未提交的验证脚本。

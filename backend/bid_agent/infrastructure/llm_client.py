@@ -2,14 +2,12 @@
 """LLM client helpers for synchronous and asynchronous OpenAI-compatible calls."""
 
 import asyncio
-import json
 import os
-from typing import Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from bid_agent.core import settings  # Load the project environment once.
+from bid_agent.infrastructure.json_repair import JsonRepairError, repair_json
 from openai import AsyncOpenAI, OpenAI
-
-
 
 
 def _safe_print(*args, **kwargs) -> None:
@@ -17,6 +15,18 @@ def _safe_print(*args, **kwargs) -> None:
         print(*args, **kwargs)
     except Exception:
         pass
+
+
+def _fallback_models(primary: str | None) -> list[str]:
+    raw = os.getenv('LLM_FALLBACK_MODELS', '').strip()
+    models: list[str] = []
+    if primary:
+        models.append(primary)
+    for item in raw.split(','):
+        name = item.strip()
+        if name and name not in models:
+            models.append(name)
+    return models
 
 
 class LLM_Invoke:
@@ -33,6 +43,13 @@ class LLM_Invoke:
         base_url = base_url or os.getenv("LLM_BASE_URL")
         self.timeout = timeout or int(os.getenv("LLM_TIMEOUT", "120"))
         self.enable_deep_thinking = enable_deep_thinking
+        self._token_usage = {
+            'prompt_tokens': 0,
+            'completion_tokens': 0,
+            'total_tokens': 0,
+            'calls': 0,
+        }
+        self._models = _fallback_models(self.model)
 
         if not all([self.model, api_key, base_url]):
             raise ValueError(
@@ -47,6 +64,22 @@ class LLM_Invoke:
             timeout=self.timeout,
         )
 
+    def get_token_summary(self) -> Dict[str, int]:
+        return dict(self._token_usage)
+
+    def reset_token_summary(self) -> None:
+        for key in self._token_usage:
+            self._token_usage[key] = 0
+
+    def _record_usage(self, response: Any) -> None:
+        usage = getattr(response, 'usage', None)
+        if not usage:
+            return
+        self._token_usage['prompt_tokens'] += int(getattr(usage, 'prompt_tokens', 0) or 0)
+        self._token_usage['completion_tokens'] += int(getattr(usage, 'completion_tokens', 0) or 0)
+        self._token_usage['total_tokens'] += int(getattr(usage, 'total_tokens', 0) or 0)
+        self._token_usage['calls'] += 1
+
     def think(
         self,
         messages: List[Dict[str, str]],
@@ -56,18 +89,12 @@ class LLM_Invoke:
         """Call the model synchronously and optionally stream chunks to stdout."""
         _safe_print(f"\n[model call] model={self.model}, stream={stream}")
         if not stream:
-            response = self.client.chat.completions.create(
-                **self._completion_kwargs(messages, temperature),
-            )
+            response = self._create_with_fallback(messages, temperature, stream=False)
             content = response.choices[0].message.content or ""
             _safe_print(content)
             return content
 
-        response = self.client.chat.completions.create(
-            **self._completion_kwargs(messages, temperature),
-            stream=True,
-        )
-
+        response = self._create_with_fallback(messages, temperature, stream=True)
         chunks: List[str] = []
         for chunk in response:
             content = chunk.choices[0].delta.content or ""
@@ -75,6 +102,32 @@ class LLM_Invoke:
             chunks.append(content)
         _safe_print()
         return "".join(chunks)
+
+    def collect_json(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float = 0,
+        *,
+        allow_llm_repair: bool = True,
+    ) -> Any:
+        """Chat then parse/repair JSON. Prefer plain JSON over json_schema for vendor stability."""
+        content = self.think(messages, temperature=temperature, stream=False)
+
+        def repair_fn(prompt: str) -> str:
+            return self.think(
+                [{'role': 'user', 'content': prompt}],
+                temperature=0,
+                stream=False,
+            )
+
+        try:
+            return repair_json(
+                content,
+                repair_chat_fn=repair_fn if allow_llm_repair else None,
+                max_llm_attempts=1 if allow_llm_repair else 0,
+            )
+        except JsonRepairError as exc:
+            raise ValueError(f'LLM 未返回可解析 JSON：{exc}') from exc
 
     def think_json(
         self,
@@ -186,9 +239,11 @@ class LLM_Invoke:
         self,
         messages: List[Dict[str, str]],
         temperature: float,
+        *,
+        model: str | None = None,
     ) -> Dict[str, object]:
         kwargs: Dict[str, object] = {
-            "model": self.model,
+            "model": model or self.model,
             "messages": self._prepare_messages(messages),
             "temperature": temperature,
         }
@@ -196,6 +251,30 @@ class LLM_Invoke:
         if extra_body:
             kwargs["extra_body"] = extra_body
         return kwargs
+
+    def _create_with_fallback(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: float,
+        *,
+        stream: bool,
+    ):
+        errors: list[str] = []
+        for model in self._models or [self.model]:
+            try:
+                kwargs = self._completion_kwargs(messages, temperature, model=model)
+                if stream:
+                    return self.client.chat.completions.create(**kwargs, stream=True)
+                response = self.client.chat.completions.create(**kwargs)
+                self._record_usage(response)
+                if model != self.model:
+                    _safe_print(f'[model fallback] used={model}')
+                return response
+            except Exception as exc:  # noqa: BLE001 — try next fallback model
+                errors.append(f'{model}: {exc}')
+                if stream or len(self._models) <= 1:
+                    raise
+        raise RuntimeError('全部 LLM 模型调用失败：' + '; '.join(errors))
 
     def _prepare_messages(self, messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
         if not self._supports_deep_thinking():

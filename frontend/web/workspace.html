@@ -63,6 +63,64 @@
           <div id="requirementFilters" class="requirement-filters" role="tablist" aria-label="要求类别"></div>
           <div id="requirements" class="requirements"></div>
         </section>
+        <section id="pipelinePanel" class="card" hidden>
+          <div class="section-heading">
+            <div>
+              <h2>阶段闸门</h2>
+              <p class="muted">要求确认 → 目录 → 生成 → 审查 → 导出。未通过的阶段会阻断后续动作。</p>
+            </div>
+            <div class="actions">
+              <button id="reloadStages" type="button">刷新阶段</button>
+              <button id="reloadMineru" type="button">MinerU 状态</button>
+            </div>
+          </div>
+          <p id="mineruStatus" class="muted">MinerU：未检查</p>
+          <div id="stageList" class="stage-list"></div>
+        </section>
+        <section id="outlinePanel" class="card" hidden>
+          <div class="section-heading">
+            <div>
+              <h2>评分对齐目录</h2>
+              <p id="outlineInfo" class="muted">需先通过「要求确认」闸门；从已抽取要求生成目录并计算评分覆盖率。</p>
+            </div>
+            <div class="actions">
+              <button id="buildOutline" class="primary" type="button">生成并保存目录</button>
+              <button id="reloadBids" type="button">刷新版本</button>
+            </div>
+          </div>
+          <pre id="outlinePreview" class="outline-preview"></pre>
+          <div id="bidVersions" class="bid-versions"></div>
+        </section>
+        <section id="reviewPanel" class="card" hidden>
+          <div class="section-heading">
+            <div>
+              <h2>合规审查</h2>
+              <p id="reviewInfo" class="muted">规则优先检查废标／★项／评分覆盖／报价自查；可选 LLM 辅助。</p>
+            </div>
+            <div class="actions">
+              <label class="check"><input id="useLlmReview" type="checkbox" /> LLM 辅助</label>
+              <button id="runReview" class="primary" type="button">运行审查</button>
+              <button id="reloadFindings" type="button">刷新发现</button>
+            </div>
+          </div>
+          <div id="reviewFindings" class="review-findings"></div>
+        </section>
+        <section id="exportPanel" class="card" hidden>
+          <div class="section-heading">
+            <div>
+              <h2>DOCX 导出</h2>
+              <p class="muted">默认需通过「合规审查」闸门；管理员可强制跳过并填写备注。</p>
+            </div>
+            <div class="actions">
+              <label class="check"><input id="forceExport" type="checkbox" /> 强制跳过闸门</label>
+              <button id="exportDocx" class="primary" type="button">导出当前目录版本</button>
+              <button id="reloadExports" type="button">刷新导出</button>
+            </div>
+          </div>
+          <label>投标人名称<input id="bidderName" maxlength="200" placeholder="可选，写入封面" /></label>
+          <label>跳过备注<input id="exportNotes" maxlength="200" placeholder="强制跳过时填写" /></label>
+          <div id="exportList" class="export-list"></div>
+        </section>
         <section id="eventsPanel" class="card" hidden><h2>任务事件</h2><p class="muted">保留排队、尝试次数、阶段、重试和取消的历史。</p><ol id="events" class="event-list"></ol></section>
       </div>
     </section>

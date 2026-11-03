@@ -125,6 +125,96 @@ def init_platform_schema(db_path: Path = DB_PATH) -> None:
             ON requirement_items(project_id, review_status);
         ''')
         conn.execute('INSERT OR IGNORE INTO platform_migrations(version,applied_at) VALUES(2,?)', (now(),))
+        # Stage gates, bid versions, compliance runs, export artifacts.
+        conn.executescript('''
+        CREATE TABLE IF NOT EXISTS project_stages (
+            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            stage TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending'
+                CHECK(status IN ('pending','passed','skipped')),
+            reviewer_id TEXT REFERENCES users(id),
+            notes TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(project_id, stage)
+        );
+        CREATE TABLE IF NOT EXISTS bid_versions (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            document_version_id TEXT REFERENCES document_versions(id) ON DELETE SET NULL,
+            title TEXT NOT NULL,
+            outline_markdown TEXT NOT NULL,
+            outline_json TEXT NOT NULL,
+            score_coverage_json TEXT NOT NULL,
+            created_by TEXT NOT NULL REFERENCES users(id),
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_bid_versions_project
+            ON bid_versions(project_id, created_at);
+        CREATE TABLE IF NOT EXISTS bid_sections (
+            id TEXT PRIMARY KEY,
+            bid_version_id TEXT NOT NULL REFERENCES bid_versions(id) ON DELETE CASCADE,
+            section_key TEXT NOT NULL,
+            title TEXT NOT NULL,
+            level INTEGER NOT NULL DEFAULT 1,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            body_markdown TEXT NOT NULL DEFAULT '',
+            UNIQUE(bid_version_id, section_key)
+        );
+        CREATE INDEX IF NOT EXISTS ix_bid_sections_version
+            ON bid_sections(bid_version_id, sort_order);
+        CREATE TABLE IF NOT EXISTS compliance_runs (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            bid_version_id TEXT REFERENCES bid_versions(id) ON DELETE SET NULL,
+            document_version_id TEXT REFERENCES document_versions(id) ON DELETE SET NULL,
+            checker_version TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'completed',
+            summary_json TEXT NOT NULL,
+            created_by TEXT NOT NULL REFERENCES users(id),
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_compliance_runs_project
+            ON compliance_runs(project_id, created_at);
+        CREATE TABLE IF NOT EXISTS compliance_findings (
+            id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL REFERENCES compliance_runs(id) ON DELETE CASCADE,
+            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            check_name TEXT NOT NULL,
+            severity TEXT NOT NULL CHECK(severity IN ('info','low','medium','high','critical')),
+            title TEXT NOT NULL,
+            detail TEXT NOT NULL,
+            requirement_item_id TEXT,
+            section_key TEXT,
+            evidence_json TEXT NOT NULL DEFAULT '[]',
+            decision_status TEXT NOT NULL DEFAULT 'open'
+                CHECK(decision_status IN ('open','accepted','waived','fixed')),
+            decision_notes TEXT NOT NULL DEFAULT '',
+            decided_by TEXT REFERENCES users(id),
+            decided_at TEXT,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_compliance_findings_run
+            ON compliance_findings(run_id, severity);
+        CREATE INDEX IF NOT EXISTS ix_compliance_findings_project
+            ON compliance_findings(project_id, decision_status);
+        CREATE TABLE IF NOT EXISTS export_artifacts (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            bid_version_id TEXT NOT NULL REFERENCES bid_versions(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL DEFAULT 'docx',
+            file_name TEXT NOT NULL,
+            object_key TEXT NOT NULL,
+            sha256 TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL,
+            created_by TEXT NOT NULL REFERENCES users(id),
+            created_at TEXT NOT NULL,
+            force_skip_gate INTEGER NOT NULL DEFAULT 0,
+            notes TEXT NOT NULL DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS ix_export_artifacts_project
+            ON export_artifacts(project_id, created_at);
+        ''')
+        conn.execute('INSERT OR IGNORE INTO platform_migrations(version,applied_at) VALUES(3,?)', (now(),))
 
 
 class NotFoundError(ValueError):

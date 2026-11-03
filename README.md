@@ -4,7 +4,7 @@ Bid Agent 面向招投标文档的整理、解析与辅助编写，将项目、�
 
 在文档工作台之外，项目保留了条款抽取、知识库、证据检索、目录及章节草稿工具。通过配置兼容 OpenAI 的模型接口和可选 MinerU 服务，可以继续进行智能分析与辅助编写。
 
-> **当前版本：0.3.0。** 文档与后台解析流程已落地；条款分析和草稿生成通过原工具入口使用。正式 Word／PDF 成品导出、标书服务端版本和字段级证据闭环列入后续计划。
+> **当前版本：0.3.0。** 文档与后台解析、B07 要求清单草案已落地；工作台另有阶段闸门、评分对齐目录、合规审查与同步 DOCX 导出骨架。完整标书协同、PDF Worker 与 PostgreSQL 仍属后续计划。
 
 AI 与协作者请先读根目录 [AGENTS.md](AGENTS.md)（结构、约定、验证与安全边界）；文档总入口见 [文档导航](docs/文档导航.md)。
 
@@ -16,7 +16,7 @@ AI 与协作者请先读根目录 [AGENTS.md](AGENTS.md)（结构、约定、验
 Bid_Agent/
 ├── frontend/
 │   ├── web/                    # 浏览器静态页：工作台 + 原分析工具
-│   │   ├── workspace.html/.js  # 默认首页：项目、原件、版本、任务
+│   │   ├── workspace.html/.js  # 默认首页：项目、原件、要求、闸门、审查、导出
 │   │   ├── index.html/app.js   # 旧分析／知识库／标书工具
 │   │   └── api.js              # 同源 /api 客户端
 │   └── desktop/                # 可选 Electron 外壳
@@ -24,16 +24,17 @@ Bid_Agent/
 │   ├── main.py                 # FastAPI 入口与数据库初始化
 │   ├── worker.py               # Celery 解析任务消费者
 │   ├── dispatcher.py           # outbox 发布及失联任务恢复
-│   ├── api/routes/             # auth／workspace／documents／projects／knowledge／health
-│   ├── repositories/           # 项目、知识、权限、版本、任务与 outbox
+│   ├── api/routes/             # auth／workspace／requirements／stages／bids／reviews…
+│   ├── repositories/           # 项目、知识、权限、版本、任务、闸门、标书与合规
 │   ├── schemas/                # 输入模型与 ParsedDocument
-│   ├── services/               # 后台解析与分析流程
+│   ├── services/               # 解析、要求抽取、目录、审查、导出
+│   ├── compliance/             # 可插拔合规检查（规则优先）
 │   ├── parsing/                # PDF／DOCX／其他解析器及策略
 │   ├── analysis/               # 规则、Prompt 与专项抽取
 │   ├── rag/                    # 关键词与可选向量检索
 │   ├── generation/             # 目录及章节草稿生成
-│   ├── review/                 # 内容辅助审查
-│   ├── infrastructure/         # 原件存储、数据库与外部服务
+│   ├── review/                 # 旧内容辅助审查
+│   ├── infrastructure/         # 原件存储、数据库、LLM、DOCX 导出
 │   ├── core/                   # 环境配置、身份与会话
 │   └── agents/                 # Plan-and-Solve 示例（未接入主链路）
 ├── deploy/                     # Dockerfile 与 Nginx 配置
@@ -73,6 +74,9 @@ Bid_Agent/
 | 招标要点抽取   | 项目概览、资格、废标、商务、技术与评分要求分析 | 原分析工具；智能分析需配置 LLM |
 | 知识库管理     | 知识条目创建、编辑、导入、导出                 | 原知识库工具                   |
 | 证据检索       | 关键词检索，可选 Chroma 向量检索与重排         | 原检索工具；向量能力需额外配置 |
+| 要求清单（B07） | 六类要求、证据定位、人工确认；可选 LLM 精抽     | 文档工作台                     |
+| 阶段闸门／目录 | 要求→目录→审查→导出；评分对齐目录与覆盖率       | 文档工作台                     |
+| 合规审查／DOCX | 规则优先检查包；同步导出 Word（需过闸门）       | 文档工作台                     |
 | 目录与章节草稿 | 生成目录及章节初稿，辅助后续编辑               | 原标书工具                     |
 | 内容辅助审查   | 规则检查、原文对照和模型辅助分析               | 原审查工具                     |
 

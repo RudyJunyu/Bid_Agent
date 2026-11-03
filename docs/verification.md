@@ -81,12 +81,54 @@ python scripts/verify_workflow.py --verify-state .work/workflow-state.json
 
 本地 `verify_workflow.py` 仅依赖 Python 标准库。启用认证时通过环境变量 `BID_VERIFY_USERNAME`／`BID_VERIFY_PASSWORD` 使用测试管理员。默认脚本会删除自己的项目记录；验证状态文件时需保留该项目。故障注入仅在独立测试部署执行，不能直接对正在使用的业务服务停机。
 
+## B07 样例召回（2026-11-03）
+
+在默认 Compose（`127.0.0.1:8080`，五服务 healthy）上，对既有项目「安阳政务信息化运维」已成功解析版本 `dv_ebbbf68f3e8049b78161c121e07b50d8`（job `job_abbd92d378944561984dc74d3c5931f4`，本地 pdfplumber）执行：
+
+```bash
+curl -sS -X POST "http://127.0.0.1:8080/api/v1/document-versions/dv_ebbbf68f3e8049b78161c121e07b50d8/requirements/extract" \
+  -H 'Content-Type: application/json' -d '{}'
+python scripts/eval_requirement_recall.py \
+  --golden docs/samples/golden/01-anyang-zhengwu-yunwei.json \
+  --base-url http://127.0.0.1:8080 \
+  --version-id dv_ebbbf68f3e8049b78161c121e07b50d8
+```
+
+结果快照见 [samples/golden/01-anyang-zhengwu-yunwei.recall.json](samples/golden/01-anyang-zhengwu-yunwei.recall.json)（`b07-rule-v2`）：
+
+| 指标 | 结果 |
+|---|---|
+| 草稿条数 | 137（overview 14／qualification 22／rejection 16／technical 60／scoring 15／commercial 10） |
+| 概览必填召回 | **9/9（100%）**；命中条证据率 **100%** |
+| 资格条款召回 | **4/4（100%）**（「信用中国」跨 qualification＋rejection 检索） |
+| 废标条款召回 | **3/3（100%）** |
+| v2 修复点 | 下一行「时间：」写入开标／截标时刻；联合体等短值用标签线索挂证据；列表默认按当前 `EXTRACTOR_VERSION` 过滤 |
+| 仍存缺口 | technical 草稿噪声偏大；可选「合同期限」字段不稳定；仅安阳单样本 |
+
+这是**单样本规则抽取草稿验收**，不能替代方案中 ≥98% 资格／废标目标或多样本业务签字。
+
+### 工作台要求清单 UI（同日）
+
+重建 `bid-agent-web:local` 后，在 `http://127.0.0.1:8080/workspace.html`：
+
+- 安阳项目已解析版本出现「要求清单」按钮；查看成功任务后自动加载 137 条（概览默认 14）。
+- 「抽取／刷新」、六类页签、跳原文、确认／驳回可用；实测将「项目名称」确认为 `confirmed`（API 复核）。
+- 截图：`docs/images/workspace-requirements.png`。
+
+### B07 LLM 精抽联调（2026-11-03 14:50）
+
+配置硅基流动 `LLM_API_KEY` 后，对同一安阳版本执行 `use_llm=true`（模型 `Qwen/Qwen3-8B`）：
+
+- 约 **84s** 完成；落库 `extractor_version=b07-hybrid-v1`，137 条。
+- 黄金召回：概览 9/9、资格 4/4、废标 3/3（与 rule-v2 同档）；快照见 `docs/samples/golden/01-anyang-zhengwu-yunwei.hybrid.recall.json`。
+- 实现注意：避免 SiliconFlow `json_schema` 长挂起，精抽改为普通 chat JSON；`LLM_TIMEOUT=300`。
+
 ## 尚未验证／未实施
 
 - 真实 MinerU／LLM 服务调用、OCR／扫描件质量、复杂跨页表格、真实招标业务验收。本轮没有使用业务密钥或付费外部调用。
 - full 镜像的 OCR／Docling／Chroma／Embedding／Reranker 推理及模型下载；本轮实测 runtime 镜像。
 - 章节级 ParsedDocument 不等于精确页坐标或逐表格结构。当前 DOCX 解析会保留表格文字，但原有解析器可能展开／重复表格内容，不能据此认定复杂表格结构已验收。
 - 冷备副本通过哈希与完整性检查；尚未把该副本导入新卷进行完整恢复／切流演练，生产恢复目标和容量指标未验证。
-- PostgreSQL／Alembic、S3、字段级证据、标书版本、正式 DOCX／PDF 成品导出仍属 B07–B16；旧分析长请求未迁入任务队列。
+- PostgreSQL／Alembic、S3、标书版本、正式 DOCX／PDF 成品导出仍属后续。B07 规则／hybrid 精抽、要求清单 UI 与安阳单样本召回已有记录，不等于方案级字段验收完成。旧分析长请求与 LLM 精抽均未迁入任务队列（精抽仍为同步请求，约 1–2 分钟）。
 - 账号找回／重置、成员撤销、统一业务审计、单点登录、企业级多租户与生产安全加固尚未完成。
 - Electron 安装包与远程 GitHub Actions 未执行。CI 保留仓库原有回归、静态检查、Compose 启动和直接 HTTP 健康检查，不依赖本轮未提交的验证脚本。

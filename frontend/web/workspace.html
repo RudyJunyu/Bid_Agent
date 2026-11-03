@@ -47,6 +47,22 @@
           <div id="resultWarnings" class="warning" hidden></div><div id="sections" class="sections"></div>
           <details class="raw-result"><summary>查看统一结构、质量报告与来源标识</summary><pre id="structuredResult"></pre></details>
         </section>
+        <section id="requirementsPanel" class="card" hidden>
+          <div class="section-heading">
+            <div>
+              <h2>要求清单</h2>
+              <p id="requirementsInfo" class="muted">解析成功后可抽取六类要求；点证据可跳到上方原文章节。</p>
+            </div>
+            <div class="actions">
+              <label class="check"><input id="useLlmRefine" type="checkbox" /> LLM 精抽（硅基流动）</label>
+              <button id="extractRequirements" class="primary" type="button">抽取／刷新</button>
+              <button id="reloadRequirements" type="button">重新加载</button>
+            </div>
+          </div>
+          <p id="llmHint" class="muted">默认规则抽取。勾选精抽需在 `.env` 配置 `LLM_API_KEY`；模型默认 Qwen3-8B。</p>
+          <div id="requirementFilters" class="requirement-filters" role="tablist" aria-label="要求类别"></div>
+          <div id="requirements" class="requirements"></div>
+        </section>
         <section id="eventsPanel" class="card" hidden><h2>任务事件</h2><p class="muted">保留排队、尝试次数、阶段、重试和取消的历史。</p><ol id="events" class="event-list"></ol></section>
       </div>
     </section>

@@ -1,0 +1,93 @@
+{
+  "sample": "01-anyang-zhengwu-yunwei.pdf",
+  "source": "河南省政府采购网公开 PDF；仅评测用",
+  "annotated_at": "2026-11-03",
+  "notes": "黄金字段来自招标公告与须知可见条款；非穷尽标注。资格／废标以条款语义命中计召回，不要求标题完全一致。",
+  "overview": [
+    {
+      "id": "project_name",
+      "field_keys": ["project_name"],
+      "must_contain_any": ["安阳市第二批市本级政务信息化运维"]
+    },
+    {
+      "id": "project_code",
+      "field_keys": ["project_code"],
+      "must_contain_any": ["安财招标采购-2026-23"]
+    },
+    {
+      "id": "buyer_name",
+      "field_keys": ["buyer_name"],
+      "must_contain_any": ["安阳市政务大数据中心"]
+    },
+    {
+      "id": "agency_name",
+      "field_keys": ["agency_name"],
+      "must_contain_any": ["安阳市方正招标采购服务有限责任公司"]
+    },
+    {
+      "id": "budget",
+      "field_keys": ["budget_text"],
+      "must_contain_any": ["7293656"]
+    },
+    {
+      "id": "procurement_method",
+      "field_keys": ["procurement_method"],
+      "must_contain_any": ["公开招标"]
+    },
+    {
+      "id": "joint_venture",
+      "field_keys": ["joint_venture"],
+      "must_contain_any": ["否"]
+    },
+    {
+      "id": "bid_deadline",
+      "field_keys": ["bid_deadline"],
+      "must_contain_any": ["2026年8月10日", "2026年8月10日09"]
+    },
+    {
+      "id": "open_time",
+      "field_keys": ["open_time"],
+      "must_contain_any": ["2026年8月10日", "2026年8月10日09"]
+    },
+    {
+      "id": "contract_term",
+      "field_keys": ["project_category", "budget_text"],
+      "must_contain_any": ["1年", "合同履行期限：1年"],
+      "optional": true
+    }
+  ],
+  "qualification_clauses": [
+    {
+      "id": "gov_procurement_law_22",
+      "must_contain_any": ["政府采购法》第二十二条", "第二十二条规定"]
+    },
+    {
+      "id": "policy_qualification_none",
+      "must_contain_any": ["无专项资格要求", "落实政府采购政策需满足的资格要求"]
+    },
+    {
+      "id": "credit_china_restriction",
+      "categories": ["qualification", "rejection"],
+      "must_contain_any": ["信用中国", "失信被执行人", "重大税收违法"],
+      "notes": "原文在「对供应商的限制性规定」；规则抽取常归入 rejection，资格桶单独计会漏"
+    },
+    {
+      "id": "specific_qualification",
+      "must_contain_any": ["特定资格要求", "法律、行政法规规定的其他条件"]
+    }
+  ],
+  "rejection_clauses": [
+    {
+      "id": "bad_credit_invalid_bid",
+      "must_contain_any": ["无效投标", "不良信用记录"]
+    },
+    {
+      "id": "false_materials",
+      "must_contain_any": ["虚假材料", "提供虚假"]
+    },
+    {
+      "id": "insufficient_suppliers_void",
+      "must_contain_any": ["不足三家", "做废标处理", "废标处理"]
+    }
+  ]
+}

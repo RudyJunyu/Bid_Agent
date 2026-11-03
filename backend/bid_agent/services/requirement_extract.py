@@ -1,6 +1,7 @@
 """B07 draft extractor: rule-first structured requirements with evidence refs."""
 from __future__ import annotations
 
+import os
 import re
 from typing import Any
 
@@ -11,7 +12,7 @@ from bid_agent.repositories.platform import new_id, now
 from bid_agent.schemas.documents import ParsedBlock
 from bid_agent.schemas.requirements import RequirementItem, SourceRef
 
-EXTRACTOR_VERSION = 'b07-rule-v1'
+EXTRACTOR_VERSION = 'b07-rule-v2'
 
 CATEGORY_HINTS: dict[str, tuple[str, ...]] = {
     'qualification': ('资格', '资质要求', '投标人资格', '供应商资格', '特定资格', '资格审查'),
@@ -66,7 +67,12 @@ def extract_requirements_from_parsed(
         if field_key in seen_overview:
             continue
         seen_overview.add(field_key)
-        refs = _locate_evidence(value, blocks, sections)
+        refs = _locate_evidence(
+            value,
+            blocks,
+            sections,
+            evidence_hints=_overview_evidence_hints(field_key, title, value),
+        )
         confidence = 0.85 if refs else 0.55
         items.append(_item(
             project_id=project_id,
@@ -170,21 +176,52 @@ def _category_for_section(section: BidDocumentSection) -> str | None:
     return max(scores, key=scores.get)
 
 
+def _overview_evidence_hints(field_key: str, title: str, value: str) -> tuple[str, ...]:
+    """Extra search needles for short overview values (e.g. joint_venture=否)."""
+    hints: list[str] = []
+    cleaned_value = re.sub(r'\s+', '', value or '')
+    if field_key == 'joint_venture' or title == '是否允许联合体投标':
+        hints.extend(('接受联合体投标', '联合体投标', '联合体'))
+    if len(cleaned_value) < 4 and title:
+        hints.append(title)
+    # Prefer longer unique snippets from datetime-like values.
+    if len(cleaned_value) >= 8:
+        hints.append(cleaned_value[:24])
+    return tuple(dict.fromkeys(h for h in hints if h))
+
+
 def _locate_evidence(
     needle: str,
     blocks: list[ParsedBlock],
     sections: list[BidDocumentSection],
     preferred_section: BidDocumentSection | None = None,
+    evidence_hints: tuple[str, ...] = (),
 ) -> list[SourceRef]:
-    cleaned = re.sub(r'\s+', '', needle or '')
-    if len(cleaned) < 4:
+    candidates = [needle, *evidence_hints]
+    cleaned_needles = []
+    for item in candidates:
+        cleaned = re.sub(r'\s+', '', item or '')
+        if cleaned and cleaned not in cleaned_needles:
+            cleaned_needles.append(cleaned)
+
+    if not cleaned_needles:
+        if preferred_section:
+            return [_section_ref(preferred_section, needle)]
+        return []
+
+    short_only = all(len(item) < 4 for item in cleaned_needles)
+    if short_only:
         if preferred_section:
             return [_section_ref(preferred_section, needle)]
         return []
 
     for block in blocks:
         hay = re.sub(r'\s+', '', block.text or '')
-        if cleaned[:40] in hay or (len(cleaned) >= 12 and cleaned[:12] in hay):
+        if any(
+            (len(cleaned) >= 4 and cleaned[:40] in hay)
+            or (len(cleaned) >= 12 and cleaned[:12] in hay)
+            for cleaned in cleaned_needles
+        ):
             return [SourceRef(
                 block_id=block.id,
                 section_index=block.section_index,
@@ -198,7 +235,11 @@ def _locate_evidence(
 
     for section in sections:
         hay = re.sub(r'\s+', '', (section.markdown or section.content or ''))
-        if cleaned[:40] in hay or (len(cleaned) >= 12 and cleaned[:12] in hay):
+        if any(
+            (len(cleaned) >= 4 and cleaned[:40] in hay)
+            or (len(cleaned) >= 12 and cleaned[:12] in hay)
+            for cleaned in cleaned_needles
+        ):
             return [_section_ref(section, needle)]
     return []
 
@@ -234,18 +275,52 @@ def _dedupe(items: list[RequirementItem]) -> list[RequirementItem]:
     return result
 
 
-def extract_and_store(project_id: str, document_version_id: str, job_id: str | None, parsed: dict, user) -> list[dict]:
+def extract_and_store(
+    project_id: str,
+    document_version_id: str,
+    job_id: str | None,
+    parsed: dict,
+    user,
+    *,
+    use_llm: bool = False,
+    llm_vendor: str | None = None,
+    llm_model: str | None = None,
+) -> tuple[list[dict], str]:
     items = extract_requirements_from_parsed(
         project_id=project_id,
         document_version_id=document_version_id,
         job_id=job_id,
         parsed=parsed,
     )
-    return requirement_repo.replace_drafts(
+    extractor_version = EXTRACTOR_VERSION
+    if use_llm:
+        from bid_agent.services.requirement_llm_refine import (
+            HYBRID_EXTRACTOR_VERSION,
+            build_requirement_llm,
+            llm_configured,
+            refine_requirements_with_llm,
+        )
+        if not llm_configured():
+            raise ValueError('未配置 LLM_API_KEY，无法精抽。请在 .env 填写硅基流动密钥后重建 api 容器。')
+        llm = build_requirement_llm(
+            vendor=llm_vendor or 'siliconflow',
+            model_name=llm_model or 'Qwen3-8B (轻量)',
+        )
+        items = refine_requirements_with_llm(
+            project_id=project_id,
+            document_version_id=document_version_id,
+            job_id=job_id,
+            parsed=parsed,
+            rule_items=items,
+            llm=llm,
+        )
+        extractor_version = HYBRID_EXTRACTOR_VERSION
+    saved = requirement_repo.replace_drafts(
         project_id=project_id,
         document_version_id=document_version_id,
         job_id=job_id,
         items=[item.model_dump() for item in items],
         user=user,
-        extractor_version=EXTRACTOR_VERSION,
+        extractor_version=extractor_version,
     )
+    return saved, extractor_version

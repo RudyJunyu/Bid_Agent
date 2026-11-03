@@ -53,9 +53,12 @@ FIELD_PATTERNS = {
         r"((?:预算金额|采购预算|项目预算|最高限价|最高投标限价|控制价|拦标价)[^\n\r。；;]{0,120}(?:元|万元|亿元))",
     ],
     "open_time": [
+        # Prefer same-line values; title-only hits are replaced by datetime recovery below.
+        r"(?:开标时间|开标日期|开启时间|响应文件开启时间)\s*[：:]\s*([^\n\r|]{4,100})",
         r"((?:开标时间|开标日期)[^\n\r。；;]{0,80})",
     ],
     "bid_deadline": [
+        r"(?:投标截止时间|提交投标文件截止时间|投标文件提交截止时间|响应文件提交截止时间)\s*[：:]\s*([^\n\r|]{4,100})",
         r"((?:投标截止时间|提交投标文件截止时间|投标文件提交截止时间|响应文件提交截止时间)[^\n\r。；;]{0,100})",
     ],
     "registration_time": [
@@ -151,8 +154,28 @@ def extract_rule_project_profile(sections: list[BidDocumentSection]) -> dict[str
     )
     profile: dict[str, Any] = {}
     for key, patterns in FIELD_PATTERNS.items():
-        value = _first_match(preface, patterns)
+        value = _first_match(preface, patterns) or _first_match(full_text, patterns)
         profile[PROFILE_FIELDS[key]] = value
+
+    # Chinese tenders often put the clock on the next line ("5.开标时间和地点" / "5.1时间：…").
+    open_time = _extract_datetime_near_label(
+        full_text,
+        ("开标时间", "开标日期", "开启时间", "响应文件开启时间"),
+    )
+    if open_time:
+        profile["开标时间"] = open_time
+    elif not _looks_like_datetime(profile.get("开标时间")):
+        # Drop title-only hits such as "开标时间和地点" without a clock.
+        profile["开标时间"] = "未提及"
+
+    bid_deadline = _extract_datetime_near_label(
+        full_text,
+        ("投标文件提交截止时间", "提交投标文件截止时间", "响应文件提交截止时间", "投标截止时间"),
+    )
+    if bid_deadline:
+        profile["投标文件提交截止时间"] = bid_deadline
+    elif not _looks_like_datetime(profile.get("投标文件提交截止时间")):
+        profile["投标文件提交截止时间"] = "未提及"
 
     profile["项目类别（服务类，货物类，工程类）和服务年限"] = (
         profile.get("项目类别（服务类，货物类，工程类）和服务年限")
@@ -258,6 +281,47 @@ def _first_match(text: str, patterns: list[str]) -> str:
         if match:
             return re.sub(r"\s+", " ", match.group(1)).strip(" ：:|")
     return ""
+
+
+_DATETIME_VALUE_RE = re.compile(
+    r"20\d{2}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日"
+    r"(?:\s*\d{1,2}\s*[时：:]\s*\d{1,2}\s*分)?"
+)
+
+
+def _looks_like_datetime(value: Any) -> bool:
+    return bool(_DATETIME_VALUE_RE.search(str(value or "")))
+
+
+def _extract_datetime_near_label(
+    text: str,
+    labels: tuple[str, ...],
+    window: int = 280,
+) -> str:
+    """Return the first concrete datetime near a Chinese time label."""
+    value = str(text or "")
+    best = ""
+    for label in labels:
+        start = 0
+        while True:
+            index = value.find(label, start)
+            if index < 0:
+                break
+            chunk = value[index : index + window]
+            timed = re.search(r"时间\s*[：:]\s*([^\n\r|]{6,100})", chunk)
+            if timed and _DATETIME_VALUE_RE.search(timed.group(1)):
+                candidate = re.sub(r"\s+", " ", timed.group(1)).strip(" ：:|")
+                return candidate
+            matched = _DATETIME_VALUE_RE.search(chunk)
+            if matched:
+                end = matched.end()
+                trailing = re.match(r"[^\n\r。；;]{0,24}", chunk[end:] or "")
+                candidate = matched.group(0) + (trailing.group(0) if trailing else "")
+                candidate = re.sub(r"\s+", " ", candidate).strip(" ：:|")
+                if len(candidate) > len(best):
+                    best = candidate
+            start = index + len(label)
+    return best
 
 
 def _is_meaningful(value: Any) -> bool:

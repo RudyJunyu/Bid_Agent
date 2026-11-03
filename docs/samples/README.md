@@ -24,4 +24,26 @@
 3. 标注证据时记录文件名、章节／页码；本目录文件版权归原发布单位，引用请保留来源链接。
 4. 若需补充 DOCX／扫描件样本，另放入本目录并更新本表。
 
+## B07 黄金标注
+
+| 标注 | 说明 |
+|---|---|
+| [golden/01-anyang-zhengwu-yunwei.json](golden/01-anyang-zhengwu-yunwei.json) | 安阳样例概览／资格／废标黄金字段 |
+| [golden/01-anyang-zhengwu-yunwei.recall.json](golden/01-anyang-zhengwu-yunwei.recall.json) | `b07-rule-v2` 召回快照（概览 9/9） |
+| [golden/01-anyang-zhengwu-yunwei.hybrid.recall.json](golden/01-anyang-zhengwu-yunwei.hybrid.recall.json) | `b07-hybrid-v1`（硅基流动）召回快照（概览 9/9） |
+
+```bash
+# 规则抽取：
+curl -sS -X POST "http://127.0.0.1:8080/api/v1/document-versions/<version_id>/requirements/extract" \
+  -H 'Content-Type: application/json' -d '{}'
+# LLM 精抽（需 LLM_API_KEY；可能 1–2 分钟）：
+curl -sS --max-time 300 -X POST "http://127.0.0.1:8080/api/v1/document-versions/<version_id>/requirements/extract" \
+  -H 'Content-Type: application/json' \
+  -d '{"use_llm":true,"llm_vendor":"siliconflow","llm_model":"Qwen3-8B (轻量)"}'
+python scripts/eval_requirement_recall.py \
+  --golden docs/samples/golden/01-anyang-zhengwu-yunwei.json \
+  --base-url http://127.0.0.1:8080 \
+  --version-id <version_id>
+```
+
 下载日期：2026-11-02。

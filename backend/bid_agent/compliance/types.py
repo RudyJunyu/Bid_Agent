@@ -9,6 +9,8 @@ class CheckContext:
     project_id: str
     requirements: list[dict] = field(default_factory=list)
     bid_sections: list[dict] = field(default_factory=list)
+    response_matrix: list[dict] = field(default_factory=list)
+    linked_assets: list[dict] = field(default_factory=list)
     outline_markdown: str = ''
     bid_text: str = ''
     use_llm: bool = False

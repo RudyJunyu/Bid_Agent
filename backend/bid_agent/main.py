@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from bid_agent.core.settings import BUILD_VERSION, CORS_ORIGINS, ROOT_PATH
 from bid_agent.infrastructure.database import init_database
 from bid_agent.api.routes import (
+    assets,
     auth,
     bids,
     documents,
@@ -16,6 +17,8 @@ from bid_agent.api.routes import (
     knowledge,
     projects,
     requirements,
+    responses,
+    retrieval,
     reviews,
     stages,
     workspace,
@@ -36,7 +39,8 @@ def create_app() -> FastAPI:
     app = FastAPI(title='Bid Agent', version=BUILD_VERSION, lifespan=lifespan, root_path=ROOT_PATH)
     if CORS_ORIGINS:
         app.add_middleware(CORSMiddleware, allow_origins=CORS_ORIGINS,
-                           allow_credentials=False, allow_methods=['GET', 'POST', 'PUT', 'DELETE'],
+                           allow_credentials=False,
+                           allow_methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
                            allow_headers=['Content-Type', 'X-CSRF-Token', 'Idempotency-Key'])
     app.include_router(health.router)
     app.include_router(auth.router)
@@ -44,7 +48,10 @@ def create_app() -> FastAPI:
     app.include_router(requirements.router)
     app.include_router(stages.router)
     app.include_router(bids.router)
+    app.include_router(responses.router)
     app.include_router(reviews.router)
+    app.include_router(assets.router)
+    app.include_router(retrieval.router)
     app.include_router(integrations.router)
     for route in (documents.router, projects.router, knowledge.router):
         app.include_router(route, dependencies=[Depends(legacy_admin)])

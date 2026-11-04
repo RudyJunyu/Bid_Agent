@@ -94,6 +94,61 @@ def scoring_coverage_check(ctx: CheckContext) -> list[CheckFinding]:
     return findings
 
 
+def expired_asset_check(ctx: CheckContext) -> list[CheckFinding]:
+    findings: list[CheckFinding] = []
+    for asset in ctx.linked_assets or []:
+        if asset.get('status') == 'expired' or asset.get('expired'):
+            findings.append(CheckFinding(
+                check_name='expired_asset',
+                severity='high',
+                title=f'关联企业资产已过期：{asset.get("title") or "未命名"}',
+                detail=(
+                    f'类别 {asset.get("category")}；到期日 {asset.get("expires_on") or "未知"}。'
+                    '过期材料不能默认用于生成，请更换有效版本或取消关联。'
+                ),
+            ))
+        elif asset.get('status') == 'active' and not asset.get('latest_version'):
+            findings.append(CheckFinding(
+                check_name='expired_asset',
+                severity='medium',
+                title=f'有效资产缺少附件：{asset.get("title") or "未命名"}',
+                detail='请上传不可变附件版本后再用于投标生成。',
+            ))
+    return findings
+
+
+def response_matrix_check(ctx: CheckContext) -> list[CheckFinding]:
+    findings: list[CheckFinding] = []
+    rows = ctx.response_matrix or []
+    if not rows:
+        return findings
+    for row in rows:
+        if not row.get('is_mandatory'):
+            continue
+        status = row.get('response_status') or 'uncovered'
+        if status in {'responded', 'waived', 'drafted'}:
+            continue
+        title = row.get('requirement_title') or '未命名要求'
+        if status == 'missing_material':
+            severity = 'high'
+            detail = '；'.join(row.get('missing_materials') or []) or '标记为缺失材料'
+        elif status == 'uncovered':
+            severity = 'critical'
+            detail = '强制条款尚未映射到响应章节'
+        else:
+            severity = 'high'
+            detail = '已映射章节但正文仍空，或材料未闭环'
+        findings.append(CheckFinding(
+            check_name='response_matrix',
+            severity=severity,
+            title=f'响应矩阵未闭环：{title}',
+            detail=detail,
+            requirement_item_id=row.get('requirement_item_id'),
+            section_key=row.get('section_key'),
+        ))
+    return findings
+
+
 def selfcheck_list(ctx: CheckContext) -> list[CheckFinding]:
     checklist = [
         ('资格文件齐全', any(item.get('category') == 'qualification' and item.get('review_status') == 'confirmed'
@@ -104,6 +159,7 @@ def selfcheck_list(ctx: CheckContext) -> list[CheckFinding]:
         ('技术方案章节存在', any('技术' in (section.get('title') or '') for section in ctx.bid_sections)),
         ('报价相关章节存在', any(any(token in (section.get('title') or '') for token in ('报价', '价格'))
                          for section in ctx.bid_sections)),
+        ('响应矩阵已构建', bool(ctx.response_matrix)),
     ]
     findings: list[CheckFinding] = []
     for title, ok in checklist:

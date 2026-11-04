@@ -65,6 +65,13 @@ def outline_from_requirements(
             document_version_id=version_id,
             sections=built['sections'],
         )
+        stages.mark_stage(
+            project_id,
+            'outline',
+            user,
+            status='passed',
+            notes='评分对齐目录已保存',
+        )
         payload['bid_version'] = saved
     return payload
 

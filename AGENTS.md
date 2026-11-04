@@ -52,11 +52,11 @@ Bid_Agent/
 └── .env.example
 ```
 
-**当前版本 0.3.0。** 已落地 B01–B06：Repository 拆分、原件对象存储与不可覆盖版本、任务表／outbox／Redis／Celery、统一 `ParsedDocument`、登录与项目角色骨架、文档工作台。另有 B07 要求清单草案，以及阶段闸门／评分对齐目录／合规审查／DOCX 导出骨架（SQLite `platform_migrations` v3，见 [bid-pipeline](docs/implementation/bid-pipeline.md)）。主业务调用链：
+**当前版本 0.3.0。** 已落地 B01–B06：Repository 拆分、原件对象存储与不可覆盖版本、任务表／outbox／Redis／Celery、统一 `ParsedDocument`、登录与项目角色骨架、文档工作台。另有 B07 要求清单草案，以及阶段闸门／目录／章节／响应矩阵／企业资产／项目内关键词检索／证据约束成章／审查审批／模板化 DOCX 导出骨架（SQLite `platform_migrations` v9，见 [bid-pipeline](docs/implementation/bid-pipeline.md)）。B08 仅有 inventory／schema 骨架；B16 仅有演练脚本。主业务调用链：
 
 `api/routes` → `services` → `repositories`／`infrastructure` → SQLite WAL 与本地对象目录；解析任务另经 `dispatcher` → Redis → `worker` → `services.document_parser` → `parsing`。
 
-旧分析长请求仍走 `services/analysis_workflow` 与 `api/routes/documents`，尚未全部迁入任务队列。PostgreSQL／Alembic、S3、企业资产、PDF 转换 Worker 等仍属 B08–B16，见 [完整实施方案](docs/project-completion-plan.md)。
+旧分析长请求仍走 `services/analysis_workflow` 与 `api/routes/documents`，尚未全部迁入任务队列。PostgreSQL 正式切流、S3、向量持久索引、独立 PDF Worker 等仍属后续，见 [完整实施方案](docs/project-completion-plan.md) 与 [b08-postgres](docs/implementation/b08-postgres.md)。
 
 Compose 五服务：仅 `web`（Nginx）发布宿主机端口；`api`／`worker`／`dispatcher` 共用后端镜像与 `bid-data` 卷；`redis` 独立卷。默认 API 单进程、Worker 并发 1；不能用网络文件系统共享 SQLite 做多主机写扩容。
 
@@ -67,7 +67,10 @@ Compose 五服务：仅 `web`（Nginx）发布宿主机端口；`api`／`worker`
 | 产品范围、阶段与验收 | [完整实施方案](docs/project-completion-plan.md) |
 | B01–B06 数据模型、状态机、权限与接口边界 | [实施说明](docs/implementation/b01-b06.md) |
 | B07 结构化要求与证据（草稿） | [B07 草稿](docs/implementation/b07-draft.md) |
-| 闸门／目录／审查／DOCX 闭环骨架 | [bid-pipeline](docs/implementation/bid-pipeline.md) |
+| 闸门／目录／章节／矩阵／资产／检索／成章／审查／导出闭环骨架 | [bid-pipeline](docs/implementation/bid-pipeline.md) |
+| B10 项目内证据检索与索引版本 | [b10-retrieval](docs/implementation/b10-retrieval.md) |
+| B08 PostgreSQL 迁库骨架（未切流） | [b08-postgres](docs/implementation/b08-postgres.md) |
+| B16 恢复／容量演练脚本 | [drills](docs/operations/drills.md) |
 | 本轮增量改动说明（给接手伙伴） | [改动说明](docs/改动说明.md) |
 | 模块职责、新旧链路与技术债 | [架构梳理](docs/architecture/overview.md) |
 | Compose、认证、备份恢复与排错 | [Docker 部署手册](docs/deployment/docker.md) |

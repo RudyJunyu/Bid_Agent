@@ -133,12 +133,54 @@ python scripts/eval_requirement_recall.py \
 
 未覆盖：真实业务样例端到端截图、LibreOffice PDF、LLM 审查实调、工作台浏览器回归。
 
+### B11 章节正文保存（2026-11-04 23:47）
+
+- `test_bid_pipeline` 扩展：保存目录后 outline 闸门自动通过；`PATCH` 章节正文后 `GET` 可恢复；可选通过 generate；导出 DOCX 含正文锚点文本。
+- `test_section_seed_placeholder_and_reject_overwrite`：空章填入【待补充】；无 overwrite 时拒覆盖。
+- 未覆盖：工作台浏览器回归截图、章级历史快照、LLM 成章。
+
+### B13 响应矩阵（2026-11-04 23:55）
+
+- 全链路：重建矩阵 → PATCH 为 responded → 审查 → 导出；DOCX 含「缺失材料与待办清单」。
+- `test_response_matrix_preserves_manual_status`：waived 在重建后保留。
+- 未覆盖：工作台矩阵面板浏览器截图、一对多章节映射、企业材料自动匹配。
+
+### B15 审查审批（2026-11-05 00:15）
+
+- 全链路：开放高风险时 check 闸门 400 → 逐条带备注闭环 → 批准审查任务 → 通过 check → 导出；审计日志含 `review.*`。
+- `test_high_risk_decision_requires_notes_and_blocks_check`：豁免无备注 400；`force_skip_high_risk` + 备注可强制通过。
+- 未覆盖：工作台审批浏览器截图、多级会签、跨项目审计检索。
+
+### B09 企业资产（2026-11-05 00:20）
+
+- `test_expired_asset_not_usable_and_flagged_in_review`：过期自动 `expired`／`usable=false`；有效资产可上传版本并关联；`usable_only` 过滤；审查发现含过期标题。
+- `test_usable_only_list_excludes_draft_and_disabled`：草稿／停用不进入可用列表。
+- 未覆盖：工作台资产面板截图、多组织隔离、资产全文／向量检索。
+
+### B14 导出模板（2026-11-05 00:24）
+
+- `test_builtin_templates_and_section_filter`：技术／商务分册章节过滤。
+- `test_docx_structure_has_toc_page_numbers_and_dark_cover`：暗标封面隐藏投标人；含目录／页码／缺项附录。
+- `test_export_templates_api_and_template_export`：模板列表与 PDF 能力探测。
+- 未覆盖：LibreOffice 实转 PDF（环境依赖）、人工视觉黄金样本签字、自定义模板上传。
+
+### B10／B12 检索与证据成章（2026-11-05 00:35）
+
+- `test_search_requires_project_access_and_returns_hits`：重建索引 → 搜索命中 → Recall@K=1.0（自洽用例）。
+- `test_generate_section_from_evidence_marks_placeholders`：规则成章正文含【待补充】／不编造声明。
+- 未覆盖：持久向量索引、人工标注多样本评测集业务签字、LLM 成章、工作台检索 UI 截图。
+
+### B16／B08 骨架（2026-11-05 00:35）
+
+- 脚本就位：`drill_recovery.py`（备份清单哈希）、`drill_capacity.py`（健康延迟）、`sqlite_inventory.py`；文档见 `docs/operations/drills.md`、`docs/implementation/b08-postgres.md`、`deploy/postgres/schema_v1.sql`。
+- 未覆盖：独立环境完整切流恢复、生产 RTO／容量目标签字、Alembic 生产迁移与 PostgreSQL 写路径切换。
+
 ## 尚未验证／未实施
 
 - 真实 MinerU／LLM 服务调用、OCR／扫描件质量、复杂跨页表格、真实招标业务验收。本轮没有使用业务密钥或付费外部调用。
 - full 镜像的 OCR／Docling／Chroma／Embedding／Reranker 推理及模型下载；本轮实测 runtime 镜像。
 - 章节级 ParsedDocument 不等于精确页坐标或逐表格结构。当前 DOCX 解析会保留表格文字，但原有解析器可能展开／重复表格内容，不能据此认定复杂表格结构已验收。
-- 冷备副本通过哈希与完整性检查；尚未把该副本导入新卷进行完整恢复／切流演练，生产恢复目标和容量指标未验证。
-- PostgreSQL／Alembic、S3、PDF 转换 Worker、完整标书协同编辑仍属后续。同步 DOCX 导出与阶段闸门已有 API 回归，不等于排版黄金样本与业务签字验收。B07 规则／hybrid 精抽、要求清单 UI 与安阳单样本召回已有记录，不等于方案级字段验收完成。旧分析长请求与 LLM 精抽均未迁入任务队列（精抽仍为同步请求，约 1–2 分钟）。
+- 冷备副本可通过 `drill_recovery` 校验清单哈希；完整导入新卷切流与生产恢复／容量目标仍未签字。
+- PostgreSQL 正式切流、S3、独立 PDF Worker、完整标书协同编辑仍属后续。B08／B10／B12／B16 均为草稿骨架或 SQLite 先行能力，不等于方案级全部验收完成。同步模板化 DOCX、闸门、章节、矩阵、审查、资产、关键词检索与证据成章已有 API 回归，不等于人工视觉黄金样本、多级会签、多租户隔离与业务签字。B07 规则／hybrid 精抽、要求清单 UI 与安阳单样本召回已有记录，不等于方案级字段验收完成。旧分析长请求与 LLM 精抽均未迁入任务队列（精抽仍为同步请求，约 1–2 分钟）。
 - 账号找回／重置、成员撤销、统一业务审计、单点登录、企业级多租户与生产安全加固尚未完成。
 - Electron 安装包与远程 GitHub Actions 未执行。CI 保留仓库原有回归、静态检查、Compose 启动和直接 HTTP 健康检查，不依赖本轮未提交的验证脚本。

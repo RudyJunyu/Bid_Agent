@@ -5,7 +5,16 @@ const $ = (id) => document.getElementById(id);
 const state = {
   user: null, auth: false, projects: [], documents: [], jobs: [], projectId: "", selectedJob: "",
   result: null, refreshing: false, requirements: [], requirementsVersionId: "", requirementCategory: "overview",
-  stages: [], bidVersions: [], selectedBidId: "", findings: [], exports: [],
+  stages: [], bidVersions: [], selectedBidId: "", selectedSections: [], selectedSectionId: "",
+  matrixRows: [], matrixSummary: null, matrixMissing: [], findings: [], reviewReadiness: null,
+  reviewRuns: [], auditLogs: [], findingFilter: "open", projectAssets: [], expiredAssets: [], exports: [],
+};
+const assetCategoryLabels = {
+  qualification: "资质", personnel: "人员", financial: "财务", performance: "业绩",
+  case: "案例", template: "模板", other: "其他",
+};
+const assetStatusLabels = {
+  draft: "草稿", pending_review: "待核实", active: "有效", expired: "过期", disabled: "停用",
 };
 const labels = { queued: "排队中", running: "解析中", retry_wait: "等待重试", succeeded: "已完成", failed: "失败", cancelling: "取消中", cancelled: "已取消" };
 const stages = { queued: "等待 Worker 领取", starting: "开始处理", verifying_source: "校验原件", parsing: "解析文档", normalizing: "统一结构", succeeded: "完成", failed: "失败", cancelled: "已取消", cancelling: "等待当前步骤结束", retry_wait: "等待自动重试" };
@@ -14,6 +23,10 @@ const categoryLabels = {
   commercial: "商务", technical: "技术", scoring: "评分",
 };
 const reviewLabels = { draft: "草稿", confirmed: "已确认", rejected: "已驳回", conflict: "冲突" };
+const matrixStatusLabels = {
+  uncovered: "未覆盖", mapped: "已映射", drafted: "有草稿",
+  responded: "已响应", waived: "豁免", missing_material: "缺材料",
+};
 let noticeTimer;
 
 function element(tag, text = "", className = "") {
@@ -102,19 +115,35 @@ async function selectProject(id) {
     state.stages = [];
     state.bidVersions = [];
     state.selectedBidId = "";
+    state.selectedSections = [];
+    state.selectedSectionId = "";
+    state.matrixRows = [];
+    state.matrixSummary = null;
+    state.matrixMissing = [];
     state.findings = [];
+    state.reviewReadiness = null;
+    state.reviewRuns = [];
+    state.auditLogs = [];
+    state.projectAssets = [];
+    state.expiredAssets = [];
     state.exports = [];
     renderDocuments();
     renderJobs();
     renderRequirements();
+    renderAssets();
     renderStages();
     renderBids();
+    renderSectionEditor();
+    renderMatrix();
     renderFindings();
     renderExports();
     $("resultPanel").hidden = true;
     $("requirementsPanel").hidden = true;
+    $("assetsPanel").hidden = true;
     $("pipelinePanel").hidden = true;
     $("outlinePanel").hidden = true;
+    $("sectionsPanel").hidden = true;
+    $("matrixPanel").hidden = true;
     $("reviewPanel").hidden = true;
     $("exportPanel").hidden = true;
     $("eventsPanel").hidden = true;
@@ -516,27 +545,136 @@ $("reviewResult").addEventListener("click", () => {
 async function loadPipeline(quiet = false) {
   if (!state.projectId) return;
   const projectId = state.projectId;
-  const [stages, bids, findings, exports] = await Promise.all([
+  const [stages, bids, findings, runs, projectAssets, exports] = await Promise.all([
     api.request(`/v1/projects/${projectId}/stages`),
     api.request(`/v1/projects/${projectId}/bid-versions`),
     api.request(`/v1/projects/${projectId}/review-findings`),
+    api.request(`/v1/projects/${projectId}/review-runs`),
+    api.request(`/v1/projects/${projectId}/assets`),
     api.request(`/v1/projects/${projectId}/exports`),
   ]);
   if (projectId !== state.projectId) return;
   state.stages = stages.stages || [];
+  state.reviewReadiness = stages.review_readiness || findings.readiness || null;
   state.bidVersions = bids.bid_versions || [];
   if (!state.selectedBidId && state.bidVersions.length) state.selectedBidId = state.bidVersions[0].id;
   state.findings = findings.findings || [];
+  state.reviewRuns = runs.runs || [];
+  state.projectAssets = projectAssets.assets || [];
+  state.expiredAssets = projectAssets.expired || [];
   state.exports = exports.exports || [];
+  $("assetsPanel").hidden = false;
   $("pipelinePanel").hidden = false;
   $("outlinePanel").hidden = false;
+  $("sectionsPanel").hidden = false;
+  $("matrixPanel").hidden = false;
   $("reviewPanel").hidden = false;
   $("exportPanel").hidden = false;
+  renderAssets();
   renderStages();
   renderBids();
+  await loadSelectedBidSections(quiet);
+  await loadMatrix(true);
   renderFindings();
   renderExports();
-  if (!quiet) notify("已刷新阶段、目录、审查与导出");
+  await loadExportTemplates();
+  if (!quiet) notify("已刷新资产、阶段、目录、章节、矩阵、审查与导出");
+}
+
+function renderAssets() {
+  const list = $("assetList");
+  const expiredBox = $("assetExpired");
+  if (!list || !expiredBox) return;
+  list.replaceChildren();
+  expiredBox.replaceChildren();
+  $("createAsset").disabled = !canEdit();
+  const usable = state.projectAssets.filter((item) => item.usable).length;
+  $("assetsInfo").textContent = `本项目关联 ${state.projectAssets.length} 项 · 可用 ${usable} · 过期 ${state.expiredAssets.length}（过期不可用于生成）`;
+  if (state.expiredAssets.length) {
+    expiredBox.append(element("h3", "过期／不可用关联资产"));
+    for (const item of state.expiredAssets.slice(0, 10)) {
+      const card = element("article", "", "asset-item expired");
+      card.append(element("div", `${item.title} · 到期 ${item.expires_on || "-"}`));
+      expiredBox.append(card);
+    }
+  }
+  for (const item of state.projectAssets) {
+    const card = element("article", "", `asset-item${item.usable ? "" : " expired"}`);
+    card.append(element("div", item.title || "资产", "matrix-title"));
+    const meta = element("div", "", "matrix-meta");
+    meta.append(element("span", assetCategoryLabels[item.category] || item.category, "badge"));
+    meta.append(element("span", assetStatusLabels[item.status] || item.status, `state state-${item.usable ? "confirmed" : "rejected"}`));
+    meta.append(element("span", item.usable ? "可用于生成" : "不可用于生成", "muted"));
+    if (item.expires_on) meta.append(element("span", `到期 ${item.expires_on}`, "muted"));
+    card.append(meta);
+    if (item.latest_version) {
+      const link = element("a", `附件 v${item.latest_version.version} · ${item.latest_version.file_name}`);
+      link.href = `${api.base}/v1/enterprise-asset-versions/${item.latest_version.id}/download`;
+      card.append(link);
+    } else {
+      card.append(element("div", "尚无附件版本", "muted"));
+    }
+    if (canEdit()) {
+      const actions = element("div", "", "actions");
+      if (item.status === "draft" || item.status === "pending_review") {
+        actions.append(action("标为有效", async () => {
+          await api.request(`/v1/enterprise-assets/${item.id}`, {
+            method: "PATCH", body: { status: "active" },
+          });
+          await loadPipeline(true);
+        }));
+      }
+      actions.append(action("取消关联", async () => {
+        await api.request(`/v1/projects/${state.projectId}/assets/${item.id}`, { method: "DELETE" });
+        notify("已取消关联");
+        await loadPipeline(true);
+      }));
+      card.append(actions);
+    }
+    list.append(card);
+  }
+  if (!state.projectAssets.length) list.append(element("p", "尚未关联企业资产。可在上方创建并关联。", "empty-list"));
+}
+
+async function loadMatrix(quiet = true) {
+  if (!state.selectedBidId) {
+    state.matrixRows = [];
+    state.matrixSummary = null;
+    state.matrixMissing = [];
+    renderMatrix();
+    return;
+  }
+  try {
+    const data = await api.request(`/v1/bid-versions/${state.selectedBidId}/response-matrix`);
+    state.matrixRows = data.rows || [];
+    state.matrixSummary = data.summary || null;
+    state.matrixMissing = data.missing_materials || [];
+  } catch (error) {
+    if (!quiet) throw error;
+    state.matrixRows = [];
+    state.matrixSummary = null;
+    state.matrixMissing = [];
+  }
+  renderMatrix();
+}
+
+async function loadSelectedBidSections(quiet = true) {
+  if (!state.selectedBidId) {
+    state.selectedSections = [];
+    state.selectedSectionId = "";
+    renderSectionEditor();
+    return;
+  }
+  const detail = await api.request(`/v1/bid-versions/${state.selectedBidId}`);
+  if (!quiet && detail.id !== state.selectedBidId) return;
+  state.selectedSections = detail.sections || [];
+  $("outlinePreview").textContent = detail.outline_markdown || "";
+  const stats = detail.content_stats || {};
+  $("outlineInfo").textContent = `${detail.id} · 覆盖 ${((detail.score_coverage?.coverage_rate || 0) * 100).toFixed(0)}% · 正文 ${stats.filled || 0}/${stats.total || 0}`;
+  if (state.selectedSectionId && !state.selectedSections.some((item) => item.id === state.selectedSectionId)) {
+    state.selectedSectionId = "";
+  }
+  renderSectionEditor();
 }
 
 function renderStages() {
@@ -555,8 +693,15 @@ function renderStages() {
     if (canEdit()) {
       if (!stage.passed) {
         actions.append(action("通过", async () => {
+          const body = { status: "passed", notes: "工作台确认" };
+          if (stage.stage === "check" && state.reviewReadiness?.open_high_risk) {
+            const ok = window.confirm(`仍有 ${state.reviewReadiness.open_high_risk} 条高风险未处理。强制通过并记备注？`);
+            if (!ok) return;
+            body.force_skip_high_risk = true;
+            body.notes = $("reviewDecisionNotes")?.value.trim() || "工作台强制通过检查闸门";
+          }
           await api.request(`/v1/projects/${state.projectId}/stages/${stage.stage}`, {
-            method: "POST", body: { status: "passed", notes: "工作台确认" },
+            method: "POST", body,
           });
           await loadPipeline(true);
         }));
@@ -581,13 +726,16 @@ function renderBids() {
   for (const item of state.bidVersions) {
     const row = element("article", "", "bid-item");
     const rate = item.score_coverage?.coverage_rate;
-    row.append(element("div", `${item.title} · ${item.id}${rate == null ? "" : ` · 覆盖 ${(Number(rate) * 100).toFixed(0)}%`}`));
+    const filled = item.content_stats?.filled;
+    const total = item.content_stats?.total;
+    const fillLabel = total == null ? "" : ` · 正文 ${filled || 0}/${total}`;
+    row.append(element("div", `${item.title} · ${item.id}${rate == null ? "" : ` · 覆盖 ${(Number(rate) * 100).toFixed(0)}%`}${fillLabel}`));
     const actions = element("div", "", "actions");
     actions.append(action(item.id === state.selectedBidId ? "当前版本" : "选用", async () => {
       state.selectedBidId = item.id;
-      const detail = await api.request(`/v1/bid-versions/${item.id}`);
-      $("outlinePreview").textContent = detail.outline_markdown || "";
-      $("outlineInfo").textContent = `${item.id} · 覆盖 ${((detail.score_coverage?.coverage_rate || 0) * 100).toFixed(0)}%`;
+      state.selectedSectionId = "";
+      await loadSelectedBidSections(true);
+      await loadMatrix(true);
       renderBids();
     }));
     row.append(actions);
@@ -595,8 +743,158 @@ function renderBids() {
   }
   if (!state.bidVersions.length) {
     $("outlinePreview").textContent = "";
+    state.selectedSections = [];
+    state.selectedSectionId = "";
+    renderSectionEditor();
     container.append(element("p", "尚未保存目录版本。通过要求闸门后可生成。", "empty-list"));
   }
+}
+
+function renderSectionEditor() {
+  const list = $("sectionList");
+  const editor = $("sectionEditor");
+  if (!list || !editor) return;
+  list.replaceChildren();
+  $("saveSection").disabled = !canEdit();
+  $("seedSection").disabled = !canEdit();
+  if ($("generateEvidenceSection")) $("generateEvidenceSection").disabled = !canEdit();
+  if (!state.selectedBidId) {
+    $("sectionsInfo").textContent = "请先生成并选用目录版本。";
+    editor.hidden = true;
+    list.append(element("p", "尚无目录版本。", "empty-list"));
+    return;
+  }
+  const filled = state.selectedSections.filter((item) => (item.body_markdown || "").trim()).length;
+  $("sectionsInfo").textContent = `当前版本 ${state.selectedBidId} · 已填 ${filled}/${state.selectedSections.length} 章；保存后刷新可恢复。`;
+  for (const item of state.selectedSections) {
+    const row = element("article", "", `section-edit-item${item.id === state.selectedSectionId ? " active" : ""}`);
+    const hasBody = Boolean((item.body_markdown || "").trim());
+    const indent = Number(item.level || 1) > 1 ? "　".repeat(Number(item.level) - 1) : "";
+    row.append(element("div", `${indent}${item.title}`));
+    const actions = element("div", "", "actions");
+    actions.append(element("span", hasBody ? "已填" : "空", `state state-${hasBody ? "confirmed" : "draft"}`));
+    actions.append(action(item.id === state.selectedSectionId ? "编辑中" : "编辑", async () => {
+      state.selectedSectionId = item.id;
+      renderSectionEditor();
+    }));
+    row.append(actions);
+    list.append(row);
+  }
+  if (!state.selectedSections.length) {
+    editor.hidden = true;
+    list.append(element("p", "该目录版本没有章节。", "empty-list"));
+    return;
+  }
+  const current = state.selectedSections.find((item) => item.id === state.selectedSectionId);
+  if (!current) {
+    editor.hidden = true;
+    return;
+  }
+  editor.hidden = false;
+  $("sectionEditorTitle").textContent = current.title || "章节";
+  $("sectionEditorMeta").textContent = `${current.section_key} · ${current.id}${current.updated_at ? ` · 更新于 ${formatTime(current.updated_at)}` : ""}`;
+  $("sectionBody").value = current.body_markdown || "";
+  $("sectionBody").disabled = !canEdit();
+}
+
+function renderMatrix() {
+  const rowsBox = $("matrixRows");
+  const missingBox = $("matrixMissing");
+  if (!rowsBox || !missingBox) return;
+  rowsBox.replaceChildren();
+  missingBox.replaceChildren();
+  $("rebuildMatrix").disabled = !canEdit() || !state.selectedBidId;
+  if (!state.selectedBidId) {
+    $("matrixInfo").textContent = "请先生成并选用目录版本，再重建响应矩阵。";
+    rowsBox.append(element("p", "尚无标书版本。", "empty-list"));
+    return;
+  }
+  const summary = state.matrixSummary;
+  if (summary) {
+    $("matrixInfo").textContent = `${state.selectedBidId} · 共 ${summary.total} 条 · 强制待闭环 ${summary.mandatory_open}/${summary.mandatory_total} · 覆盖 ${((summary.coverage_rate || 0) * 100).toFixed(0)}%`;
+  } else {
+    $("matrixInfo").textContent = "尚未构建矩阵。通过目录闸门后点击「重建矩阵」。";
+  }
+  if (state.matrixMissing.length) {
+    missingBox.append(element("h3", "缺失材料／待办"));
+    for (const item of state.matrixMissing.slice(0, 20)) {
+      const card = element("article", "", "matrix-item mandatory");
+      card.append(element("div", item.requirement_title || "要求", "matrix-title"));
+      card.append(element("div", (item.materials || []).join("；") || "待处理", "muted"));
+      missingBox.append(card);
+    }
+  }
+  if (!state.matrixRows.length) {
+    rowsBox.append(element("p", "矩阵为空。生成目录并抽取要求后，点击「重建矩阵」。", "empty-list"));
+    return;
+  }
+  for (const row of state.matrixRows) {
+    const card = element("article", "", `matrix-item${row.is_mandatory ? " mandatory" : ""}`);
+    card.append(element("div", row.requirement_title || "要求", "matrix-title"));
+    const meta = element("div", "", "matrix-meta");
+    meta.append(element("span", categoryLabels[row.requirement_category] || row.requirement_category || "-", "badge"));
+    meta.append(element("span", row.is_mandatory ? "强制" : "普通", "badge"));
+    meta.append(element("span", matrixStatusLabels[row.response_status] || row.response_status, `state state-${row.response_status === "responded" || row.response_status === "drafted" ? "confirmed" : row.response_status === "waived" ? "skipped" : "draft"}`));
+    meta.append(element("span", row.section_title ? `章节：${row.section_title}` : "未映射章节", "muted"));
+    card.append(meta);
+    if ((row.missing_materials || []).length) {
+      card.append(element("div", `待补：${row.missing_materials.join("；")}`, "muted"));
+    }
+    if (canEdit()) {
+      const statusSelect = document.createElement("select");
+      statusSelect.className = "matrix-select";
+      for (const [value, label] of Object.entries(matrixStatusLabels)) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        if (value === row.response_status) option.selected = true;
+        statusSelect.append(option);
+      }
+      const sectionSelect = document.createElement("select");
+      sectionSelect.className = "matrix-select";
+      const empty = document.createElement("option");
+      empty.value = "";
+      empty.textContent = "（不关联章节）";
+      sectionSelect.append(empty);
+      for (const section of state.selectedSections) {
+        const option = document.createElement("option");
+        option.value = section.id;
+        option.textContent = `${section.title}${section.level > 1 ? "" : ""}`;
+        if (section.id === row.section_id) option.selected = true;
+        sectionSelect.append(option);
+      }
+      const notes = document.createElement("textarea");
+      notes.className = "matrix-notes";
+      notes.placeholder = "响应说明／豁免理由";
+      notes.value = row.response_summary || row.notes || "";
+      const actions = element("div", "", "actions");
+      actions.append(action("保存", async () => {
+        await api.request(`/v1/requirement-responses/${row.id}`, {
+          method: "PATCH",
+          body: {
+            response_status: statusSelect.value,
+            section_id: sectionSelect.value || null,
+            clear_section: !sectionSelect.value,
+            response_summary: notes.value.trim(),
+            notes: notes.value.trim(),
+          },
+        });
+        notify("响应矩阵条目已更新");
+        await loadMatrix(false);
+      }));
+      card.append(statusSelect, sectionSelect, notes, actions);
+    }
+    rowsBox.append(card);
+  }
+}
+
+function filteredFindings() {
+  const filter = state.findingFilter || $("findingFilter")?.value || "open";
+  if (filter === "all") return state.findings;
+  if (filter === "high") {
+    return state.findings.filter((item) => item.decision_status === "open" && ["high", "critical"].includes(item.severity));
+  }
+  return state.findings.filter((item) => item.decision_status === "open");
 }
 
 function renderFindings() {
@@ -604,28 +902,73 @@ function renderFindings() {
   if (!container) return;
   container.replaceChildren();
   $("runReview").disabled = !canEdit();
+  if ($("approveReview")) $("approveReview").disabled = !canEdit() || !state.reviewRuns.length;
   const open = state.findings.filter((item) => item.decision_status === "open");
-  $("reviewInfo").textContent = `共 ${state.findings.length} 条发现，其中待处理 ${open.length} 条`;
-  for (const item of state.findings.slice(0, 40)) {
+  const openHigh = state.findings.filter((item) => item.decision_status === "open" && ["high", "critical"].includes(item.severity));
+  const latest = state.reviewRuns[0];
+  const approval = latest?.approval_status || "pending";
+  $("reviewInfo").textContent = `共 ${state.findings.length} 条 · 待处理 ${open.length} · 高风险待闭环 ${openHigh.length} · 最近审批 ${approval}`;
+  const rows = filteredFindings();
+  for (const item of rows.slice(0, 40)) {
     const card = element("article", "", "finding");
     card.append(element("div", `${item.title} · ${item.check_name}`, `finding-title sev-${item.severity}`));
-    card.append(element("div", item.detail || "", "muted"));
+    card.append(element("div", `${item.severity} · ${item.detail || ""}`, "muted"));
+    if (item.decided_by) {
+      card.append(element("div", `处理：${item.decision_status} · ${item.decision_notes || "无备注"} · ${formatTime(item.decided_at)}`, "muted"));
+    }
     const actions = element("div", "", "actions");
     actions.append(element("span", item.decision_status, `state state-${item.decision_status === "open" ? "pending" : "confirmed"}`));
     if (canEdit() && item.decision_status === "open") {
       for (const status of [["accepted", "接受"], ["waived", "豁免"], ["fixed", "已修复"]]) {
         actions.append(action(status[1], async () => {
+          const notes = ($("reviewDecisionNotes")?.value || "").trim();
+          const needNotes = status[0] === "waived" || ["high", "critical"].includes(item.severity);
+          if (needNotes && !notes) return notify("高风险处理或豁免必须填写备注", true);
           await api.request(`/v1/review-findings/${item.id}/decide`, {
-            method: "POST", body: { decision_status: status[0], notes: "工作台处理" },
+            method: "POST", body: { decision_status: status[0], notes: notes || "工作台处理" },
           });
           await loadPipeline(true);
         }));
       }
     }
+    actions.append(action("历程", async () => {
+      const data = await api.request(`/v1/review-findings/${item.id}/history`);
+      let box = card.querySelector(".finding-history");
+      if (!box) {
+        box = element("div", "", "finding-history");
+        card.append(box);
+      }
+      box.replaceChildren();
+      if (!(data.events || []).length) {
+        box.append(element("div", "尚无处理记录"));
+      } else {
+        for (const event of data.events) {
+          box.append(element("div", `${formatTime(event.created_at)} · ${event.from_status || "-"} → ${event.to_status} · ${event.notes || "无备注"}`));
+        }
+      }
+    }));
     card.append(actions);
     container.append(card);
   }
   if (!state.findings.length) container.append(element("p", "尚未运行审查。", "empty-list"));
+  else if (!rows.length) container.append(element("p", "当前筛选下无发现。", "empty-list"));
+}
+
+function renderAuditLogs() {
+  const box = $("auditLogs");
+  if (!box) return;
+  box.hidden = false;
+  box.replaceChildren(element("h3", "项目审计日志"));
+  if (!state.auditLogs.length) {
+    box.append(element("p", "暂无审计记录。", "empty-list"));
+    return;
+  }
+  for (const item of state.auditLogs.slice(0, 30)) {
+    const row = element("article", "", "audit-item");
+    row.append(element("div", `${formatTime(item.created_at)} · ${item.action}`));
+    row.append(element("div", `${item.summary} · ${item.object_type}/${item.object_id}`, "muted"));
+    box.append(row);
+  }
 }
 
 function renderExports() {
@@ -635,19 +978,182 @@ function renderExports() {
   $("exportDocx").disabled = !canEdit();
   for (const item of state.exports) {
     const row = element("article", "", "export-item");
-    row.append(element("div", `${item.file_name} · ${(item.size_bytes / 1024).toFixed(1)} KB · ${formatTime(item.created_at)}`));
-    const link = element("a", "下载 DOCX");
+    const kind = (item.kind || "docx").toUpperCase();
+    const template = item.template_id ? ` · 模板 ${item.template_id}` : "";
+    row.append(element("div", `${kind} · ${item.file_name} · ${(item.size_bytes / 1024).toFixed(1)} KB${template} · ${formatTime(item.created_at)}`));
+    const link = element("a", `下载 ${kind}`);
     link.href = `${api.base}/v1/exports/${item.id}/download`;
     row.append(link);
+    if (item.checklist?.structure) {
+      const structure = item.checklist.structure;
+      row.append(element("div", `结构：目录=${structure.has_toc ? "有" : "无"} · 页码=${structure.has_page_numbers ? "有" : "无"} · 缺项附录=${structure.has_missing_appendix ? "有" : "无"}`, "muted"));
+    }
     container.append(row);
   }
   if (!state.exports.length) container.append(element("p", "尚无导出物。", "empty-list"));
 }
 
+async function loadExportTemplates() {
+  const select = $("exportTemplate");
+  if (!select) return;
+  try {
+    const data = await api.request("/v1/export-templates");
+    const current = select.value || "full";
+    select.replaceChildren();
+    for (const item of data.templates || []) {
+      const option = document.createElement("option");
+      option.value = item.id;
+      option.textContent = `${item.label}${item.dark_bid ? "（暗标）" : ""}`;
+      select.append(option);
+    }
+    select.value = [...select.options].some((item) => item.value === current) ? current : "full";
+    $("exportInfo").textContent = data.pdf_converter_available
+      ? `模板版本 ${data.template_version}；本环境可尝试 LibreOffice 转 PDF。`
+      : `模板版本 ${data.template_version}；未检测到 LibreOffice，PDF 转换将跳过。`;
+  } catch (error) {
+    // Keep default option if templates API unavailable.
+  }
+}
+
 $("reloadStages").addEventListener("click", () => loadPipeline().catch(handleError));
+$("reloadAssets").addEventListener("click", () => loadPipeline(true).catch(handleError));
+$("createAsset").addEventListener("click", async () => {
+  if (!state.projectId) return notify("请先选择项目", true);
+  const title = $("assetTitle").value.trim();
+  if (!title) return notify("请填写资产标题", true);
+  $("createAsset").disabled = true;
+  try {
+    const asset = await api.request("/v1/enterprise-assets", {
+      method: "POST",
+      body: {
+        category: $("assetCategory").value,
+        title,
+        subject_name: $("assetSubject").value.trim(),
+        certificate_no: $("assetCertNo").value.trim(),
+        issuer: $("assetIssuer").value.trim(),
+        issued_on: $("assetIssuedOn").value || null,
+        expires_on: $("assetExpiresOn").value || null,
+        status: $("assetStatus").value,
+      },
+    });
+    const file = $("assetFile").files?.[0];
+    if (file) {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("notes", "工作台上传");
+      await api.request(`/v1/enterprise-assets/${asset.id}/versions`, { method: "POST", body: form });
+    }
+    await api.request(`/v1/projects/${state.projectId}/assets/${asset.id}/link`, { method: "POST", body: {} });
+    $("assetTitle").value = "";
+    $("assetSubject").value = "";
+    $("assetCertNo").value = "";
+    $("assetIssuer").value = "";
+    $("assetIssuedOn").value = "";
+    $("assetExpiresOn").value = "";
+    $("assetFile").value = "";
+    notify(`已创建并关联：${asset.title}${asset.usable ? "" : "（当前不可用于生成）"}`);
+    await loadPipeline(true);
+  } catch (error) { handleError(error); }
+  finally { $("createAsset").disabled = !canEdit(); }
+});
 $("reloadBids").addEventListener("click", () => loadPipeline(true).catch(handleError));
+$("reloadSections").addEventListener("click", () => loadSelectedBidSections(false).catch(handleError));
+$("reloadMatrix").addEventListener("click", () => loadMatrix(false).catch(handleError));
+$("rebuildMatrix").addEventListener("click", async () => {
+  if (!state.selectedBidId) return notify("请先选用目录版本", true);
+  $("rebuildMatrix").disabled = true;
+  try {
+    const data = await api.request(`/v1/bid-versions/${state.selectedBidId}/response-matrix/rebuild`, {
+      method: "POST", body: {},
+    });
+    state.matrixRows = data.rows || [];
+    state.matrixSummary = data.summary || null;
+    state.matrixMissing = data.missing_materials || [];
+    renderMatrix();
+    notify(`矩阵已重建：${data.summary?.total || 0} 条，强制待闭环 ${data.summary?.mandatory_open || 0}`);
+  } catch (error) { handleError(error); }
+  finally { $("rebuildMatrix").disabled = !canEdit() || !state.selectedBidId; }
+});
 $("reloadFindings").addEventListener("click", () => loadPipeline(true).catch(handleError));
+$("findingFilter")?.addEventListener("change", () => {
+  state.findingFilter = $("findingFilter").value;
+  renderFindings();
+});
+$("approveReview")?.addEventListener("click", async () => {
+  const latest = state.reviewRuns[0];
+  if (!latest) return notify("请先运行审查", true);
+  $("approveReview").disabled = true;
+  try {
+    const notes = ($("reviewDecisionNotes")?.value || "").trim();
+    const force = Boolean(state.reviewReadiness?.open_high_risk);
+    if (force && !notes) return notify("仍有高风险未闭环时，强制批准必须填写备注", true);
+    await api.request(`/v1/review-runs/${latest.id}/approve`, {
+      method: "POST",
+      body: { approval_status: "approved", notes: notes || "工作台批准", force },
+    });
+    notify("审查任务已批准");
+    await loadPipeline(true);
+  } catch (error) { handleError(error); }
+  finally { $("approveReview").disabled = !canEdit() || !state.reviewRuns.length; }
+});
+$("reloadAudit")?.addEventListener("click", async () => {
+  if (!state.projectId) return;
+  try {
+    const data = await api.request(`/v1/projects/${state.projectId}/audit-logs?limit=50`);
+    state.auditLogs = data.logs || [];
+    renderAuditLogs();
+  } catch (error) { handleError(error); }
+});
 $("reloadExports").addEventListener("click", () => loadPipeline(true).catch(handleError));
+$("saveSection").addEventListener("click", async () => {
+  if (!state.selectedSectionId) return notify("请先选择章节", true);
+  $("saveSection").disabled = true;
+  try {
+    const data = await api.request(`/v1/bid-sections/${state.selectedSectionId}`, {
+      method: "PATCH",
+      body: {
+        body_markdown: $("sectionBody").value,
+        mark_generate_gate: Boolean($("markGenerateGate").checked),
+      },
+    });
+    notify(`已保存：${data.section?.title || "章节"}（${data.content_stats?.filled || 0}/${data.content_stats?.total || 0}）`);
+    await loadPipeline(true);
+    state.selectedSectionId = data.section?.id || state.selectedSectionId;
+    await loadSelectedBidSections(true);
+  } catch (error) { handleError(error); }
+  finally { $("saveSection").disabled = !canEdit(); }
+});
+$("seedSection").addEventListener("click", async () => {
+  if (!state.selectedSectionId) return notify("请先选择章节", true);
+  $("seedSection").disabled = true;
+  try {
+    const overwrite = Boolean(($("sectionBody").value || "").trim());
+    const data = await api.request(`/v1/bid-sections/${state.selectedSectionId}/seed-placeholder`, {
+      method: "POST",
+      body: { overwrite },
+    });
+    state.selectedSectionId = data.section?.id || state.selectedSectionId;
+    notify(`已写入待补草稿：${data.section?.title || "章节"}`);
+    await loadPipeline(true);
+  } catch (error) { handleError(error); }
+  finally { $("seedSection").disabled = !canEdit(); }
+});
+$("generateEvidenceSection")?.addEventListener("click", async () => {
+  if (!state.selectedSectionId) return notify("请先选择章节", true);
+  $("generateEvidenceSection").disabled = true;
+  try {
+    const overwrite = Boolean(($("sectionBody").value || "").trim());
+    const data = await api.request(`/v1/bid-sections/${state.selectedSectionId}/generate-from-evidence`, {
+      method: "POST",
+      body: { overwrite, mark_generate_gate: Boolean($("markGenerateGate").checked), use_llm: false },
+    });
+    state.selectedSectionId = data.section?.id || state.selectedSectionId;
+    notify(`证据约束成章：要求 ${data.evidence_summary?.requirement_count || 0} · 待补 ${data.evidence_summary?.pending_placeholders || 0}`);
+    await loadPipeline(true);
+    await loadSelectedBidSections(true);
+  } catch (error) { handleError(error); }
+  finally { $("generateEvidenceSection").disabled = !canEdit(); }
+});
 $("reloadMineru").addEventListener("click", async () => {
   try {
     const data = await api.request("/v1/integrations/mineru");
@@ -666,6 +1172,7 @@ $("buildOutline").addEventListener("click", async () => {
       method: "POST", body,
     });
     state.selectedBidId = data.bid_version?.id || state.selectedBidId;
+    state.selectedSectionId = "";
     $("outlinePreview").textContent = data.outline_markdown || "";
     notify(`目录已保存，评分覆盖 ${((data.score_coverage?.coverage_rate || 0) * 100).toFixed(0)}%`);
     await loadPipeline(true);
@@ -698,9 +1205,14 @@ $("exportDocx").addEventListener("click", async () => {
         force_skip_gate: Boolean($("forceExport").checked),
         notes: $("exportNotes").value.trim(),
         bidder_name: $("bidderName").value.trim(),
+        template_id: $("exportTemplate")?.value || "full",
+        convert_pdf: Boolean($("convertPdf")?.checked),
       },
     });
-    notify(`已导出 ${data.artifact?.file_name || "DOCX"}`);
+    const pdfNote = data.pdf_artifact
+      ? `；PDF ${data.pdf_artifact.file_name}`
+      : (data.pdf_status && !data.pdf_status.ok ? `；PDF 跳过：${data.pdf_status.reason || ""}` : "");
+    notify(`已导出 ${data.artifact?.file_name || "DOCX"}（模板 ${data.template?.id || "full"}）${pdfNote}`);
     await loadPipeline(true);
   } catch (error) { handleError(error); }
   finally { $("exportDocx").disabled = !canEdit(); }

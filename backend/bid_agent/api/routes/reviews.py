@@ -1,4 +1,4 @@
-"""Compliance review runs and finding decisions."""
+"""Compliance review runs, finding decisions, approvals and audit."""
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from bid_agent.core.identity import Principal
 from bid_agent.core.security import current_user
-from bid_agent.repositories import reviews
+from bid_agent.repositories import audit, reviews
 from bid_agent.services.compliance_review import create_review_run
 
 router = APIRouter(prefix='/v1', tags=['reviews'])
@@ -21,6 +21,12 @@ class ReviewBody(BaseModel):
 class DecideBody(BaseModel):
     decision_status: Literal['open', 'accepted', 'waived', 'fixed']
     notes: str = Field(default='', max_length=2000)
+
+
+class ApproveBody(BaseModel):
+    approval_status: Literal['pending', 'approved', 'rejected'] = 'approved'
+    notes: str = Field(default='', max_length=2000)
+    force: bool = False
 
 
 @router.post('/projects/{project_id}/review-runs', status_code=201)
@@ -48,16 +54,40 @@ def get_run(run_id: str, user: Principal = Depends(current_user)):
     return reviews.get_run(run_id, user)
 
 
+@router.post('/review-runs/{run_id}/approve')
+def approve_run(run_id: str, body: ApproveBody | None = None, user: Principal = Depends(current_user)):
+    payload = body or ApproveBody()
+    try:
+        return reviews.approve_run(
+            run_id,
+            user,
+            approval_status=payload.approval_status,
+            notes=payload.notes,
+            force=payload.force,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 @router.get('/projects/{project_id}/review-findings')
 def list_findings(
     project_id: str,
     decision_status: str | None = Query(default=None),
+    severity: str | None = Query(default=None),
     user: Principal = Depends(current_user),
 ):
     return {
         'project_id': project_id,
-        'findings': reviews.list_findings(project_id, user, decision_status=decision_status),
+        'findings': reviews.list_findings(
+            project_id, user, decision_status=decision_status, severity=severity,
+        ),
+        'readiness': reviews.review_readiness(project_id, user),
     }
+
+
+@router.get('/projects/{project_id}/review-readiness')
+def readiness(project_id: str, user: Principal = Depends(current_user)):
+    return reviews.review_readiness(project_id, user)
 
 
 @router.post('/review-findings/{finding_id}/decide')
@@ -68,3 +98,27 @@ def decide(finding_id: str, body: DecideBody, user: Principal = Depends(current_
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
+
+
+@router.get('/review-findings/{finding_id}/history')
+def finding_history(finding_id: str, user: Principal = Depends(current_user)):
+    return {
+        'finding_id': finding_id,
+        'events': reviews.list_decision_events(finding_id, user),
+    }
+
+
+@router.get('/projects/{project_id}/audit-logs')
+def project_audit_logs(
+    project_id: str,
+    object_type: str | None = Query(default=None),
+    object_id: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    user: Principal = Depends(current_user),
+):
+    return {
+        'project_id': project_id,
+        'logs': audit.list_for_project(
+            project_id, user, object_type=object_type, object_id=object_id, limit=limit,
+        ),
+    }

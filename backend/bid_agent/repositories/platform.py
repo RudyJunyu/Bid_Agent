@@ -215,6 +215,162 @@ def init_platform_schema(db_path: Path = DB_PATH) -> None:
             ON export_artifacts(project_id, created_at);
         ''')
         conn.execute('INSERT OR IGNORE INTO platform_migrations(version,applied_at) VALUES(3,?)', (now(),))
+        # B11 draft: section body edit audit columns on bid_sections.
+        _ensure_column(conn, 'bid_sections', 'updated_at', 'TEXT')
+        _ensure_column(conn, 'bid_sections', 'updated_by', 'TEXT')
+        conn.execute('INSERT OR IGNORE INTO platform_migrations(version,applied_at) VALUES(4,?)', (now(),))
+        # B13 draft: requirement → section response matrix and missing materials.
+        conn.executescript('''
+        CREATE TABLE IF NOT EXISTS requirement_responses (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            bid_version_id TEXT NOT NULL REFERENCES bid_versions(id) ON DELETE CASCADE,
+            requirement_item_id TEXT NOT NULL REFERENCES requirement_items(id) ON DELETE CASCADE,
+            section_id TEXT REFERENCES bid_sections(id) ON DELETE SET NULL,
+            response_status TEXT NOT NULL DEFAULT 'uncovered'
+                CHECK(response_status IN (
+                    'uncovered','mapped','drafted','responded','waived','missing_material'
+                )),
+            is_mandatory INTEGER NOT NULL DEFAULT 0,
+            response_summary TEXT NOT NULL DEFAULT '',
+            missing_materials_json TEXT NOT NULL DEFAULT '[]',
+            notes TEXT NOT NULL DEFAULT '',
+            created_by TEXT NOT NULL REFERENCES users(id),
+            created_at TEXT NOT NULL,
+            updated_by TEXT REFERENCES users(id),
+            updated_at TEXT NOT NULL,
+            UNIQUE(bid_version_id, requirement_item_id)
+        );
+        CREATE INDEX IF NOT EXISTS ix_requirement_responses_bid
+            ON requirement_responses(bid_version_id, response_status);
+        CREATE INDEX IF NOT EXISTS ix_requirement_responses_project
+            ON requirement_responses(project_id, is_mandatory);
+        ''')
+        conn.execute('INSERT OR IGNORE INTO platform_migrations(version,applied_at) VALUES(5,?)', (now(),))
+        # B15 draft: review decision history, run approval, audit trail.
+        _ensure_column(conn, 'compliance_runs', 'approval_status', "TEXT NOT NULL DEFAULT 'pending'")
+        _ensure_column(conn, 'compliance_runs', 'approved_by', 'TEXT')
+        _ensure_column(conn, 'compliance_runs', 'approved_at', 'TEXT')
+        _ensure_column(conn, 'compliance_runs', 'approval_notes', "TEXT NOT NULL DEFAULT ''")
+        conn.executescript('''
+        CREATE TABLE IF NOT EXISTS compliance_decision_events (
+            id TEXT PRIMARY KEY,
+            finding_id TEXT NOT NULL REFERENCES compliance_findings(id) ON DELETE CASCADE,
+            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            run_id TEXT NOT NULL REFERENCES compliance_runs(id) ON DELETE CASCADE,
+            from_status TEXT,
+            to_status TEXT NOT NULL,
+            notes TEXT NOT NULL DEFAULT '',
+            actor_id TEXT NOT NULL REFERENCES users(id),
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_compliance_decision_events_finding
+            ON compliance_decision_events(finding_id, created_at);
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id TEXT PRIMARY KEY,
+            project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+            actor_id TEXT NOT NULL REFERENCES users(id),
+            action TEXT NOT NULL,
+            object_type TEXT NOT NULL,
+            object_id TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            detail_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_audit_logs_project
+            ON audit_logs(project_id, created_at);
+        CREATE INDEX IF NOT EXISTS ix_audit_logs_object
+            ON audit_logs(object_type, object_id, created_at);
+        ''')
+        conn.execute('INSERT OR IGNORE INTO platform_migrations(version,applied_at) VALUES(6,?)', (now(),))
+        # B09 draft: enterprise assets with immutable attachment versions and project links.
+        conn.executescript('''
+        CREATE TABLE IF NOT EXISTS enterprise_assets (
+            id TEXT PRIMARY KEY,
+            organization_key TEXT NOT NULL DEFAULT 'default',
+            category TEXT NOT NULL CHECK(category IN (
+                'qualification','personnel','financial','performance','case','template','other'
+            )),
+            title TEXT NOT NULL,
+            subject_name TEXT NOT NULL DEFAULT '',
+            certificate_no TEXT NOT NULL DEFAULT '',
+            issuer TEXT NOT NULL DEFAULT '',
+            issued_on TEXT,
+            expires_on TEXT,
+            status TEXT NOT NULL DEFAULT 'draft'
+                CHECK(status IN ('draft','pending_review','active','expired','disabled')),
+            review_notes TEXT NOT NULL DEFAULT '',
+            tags_json TEXT NOT NULL DEFAULT '[]',
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_by TEXT NOT NULL REFERENCES users(id),
+            created_at TEXT NOT NULL,
+            updated_by TEXT REFERENCES users(id),
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS ix_enterprise_assets_org_status
+            ON enterprise_assets(organization_key, status, category);
+        CREATE INDEX IF NOT EXISTS ix_enterprise_assets_expires
+            ON enterprise_assets(expires_on, status);
+        CREATE TABLE IF NOT EXISTS enterprise_asset_versions (
+            id TEXT PRIMARY KEY,
+            asset_id TEXT NOT NULL REFERENCES enterprise_assets(id) ON DELETE CASCADE,
+            version INTEGER NOT NULL,
+            file_name TEXT NOT NULL,
+            media_type TEXT NOT NULL,
+            object_key TEXT NOT NULL,
+            sha256 TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL,
+            created_by TEXT NOT NULL REFERENCES users(id),
+            created_at TEXT NOT NULL,
+            notes TEXT NOT NULL DEFAULT '',
+            UNIQUE(asset_id, version),
+            UNIQUE(asset_id, sha256)
+        );
+        CREATE INDEX IF NOT EXISTS ix_enterprise_asset_versions_asset
+            ON enterprise_asset_versions(asset_id, version);
+        CREATE TABLE IF NOT EXISTS project_asset_links (
+            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            asset_id TEXT NOT NULL REFERENCES enterprise_assets(id) ON DELETE CASCADE,
+            linked_by TEXT NOT NULL REFERENCES users(id),
+            linked_at TEXT NOT NULL,
+            PRIMARY KEY(project_id, asset_id)
+        );
+        CREATE INDEX IF NOT EXISTS ix_project_asset_links_asset
+            ON project_asset_links(asset_id);
+        ''')
+        conn.execute('INSERT OR IGNORE INTO platform_migrations(version,applied_at) VALUES(7,?)', (now(),))
+        # B14 draft: export template metadata and checklist on artifacts.
+        _ensure_column(conn, 'export_artifacts', 'template_id', "TEXT NOT NULL DEFAULT 'full'")
+        _ensure_column(conn, 'export_artifacts', 'template_version', "TEXT NOT NULL DEFAULT 'export-template-v1'")
+        _ensure_column(conn, 'export_artifacts', 'checklist_json', "TEXT NOT NULL DEFAULT '{}'")
+        _ensure_column(conn, 'export_artifacts', 'parent_artifact_id', 'TEXT')
+        conn.execute('INSERT OR IGNORE INTO platform_migrations(version,applied_at) VALUES(8,?)', (now(),))
+        # B10 draft: retrieval index versions for project evidence corpora.
+        conn.executescript('''
+        CREATE TABLE IF NOT EXISTS index_versions (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL DEFAULT 'keyword'
+                CHECK(kind IN ('keyword','hybrid')),
+            status TEXT NOT NULL DEFAULT 'ready'
+                CHECK(status IN ('building','ready','failed','retired')),
+            corpus_stats_json TEXT NOT NULL DEFAULT '{}',
+            built_by TEXT NOT NULL REFERENCES users(id),
+            built_at TEXT NOT NULL,
+            notes TEXT NOT NULL DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS ix_index_versions_project
+            ON index_versions(project_id, built_at);
+        ''')
+        conn.execute('INSERT OR IGNORE INTO platform_migrations(version,applied_at) VALUES(9,?)', (now(),))
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, decl: str) -> None:
+    existing = {
+        row[1] for row in conn.execute(f'PRAGMA table_info({table})').fetchall()
+    }
+    if column not in existing:
+        conn.execute(f'ALTER TABLE {table} ADD COLUMN {column} {decl}')
 
 
 class NotFoundError(ValueError):

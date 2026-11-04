@@ -1,0 +1,13 @@
+{
+  "k": 10,
+  "cases": [
+    {
+      "query": "质量管理体系认证",
+      "relevant_ids": ["req_REPLACE_ME"]
+    },
+    {
+      "query": "技术方案完整性",
+      "relevant_ids": ["req_REPLACE_ME"]
+    }
+  ]
+}

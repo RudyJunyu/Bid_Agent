@@ -109,10 +109,56 @@ def test_full_pipeline_outline_review_export(client):
     payload = outline.json()
     assert payload['score_coverage']['total'] == 2
     bid_id = payload['bid_version']['id']
+    sections = payload['bid_version']['sections']
+    assert sections
+    assert payload['bid_version']['content_stats']['total'] == len(sections)
+    assert payload['bid_version']['content_stats']['filled'] == 0
+
+    stages_after_outline = client.get(f'/v1/projects/{project_id}/stages').json()['stages']
+    outline_stage = next(item for item in stages_after_outline if item['stage'] == 'outline')
+    assert outline_stage['passed'] is True
 
     coverage = client.get(f'/v1/bid-versions/{bid_id}/score-coverage')
     assert coverage.status_code == 200
     assert 'coverage_rate' in coverage.json()['score_coverage']
+
+    target = next(item for item in sections if item['section_key'] == 'technical')
+    saved = client.patch(
+        f'/v1/bid-sections/{target["id"]}',
+        json={
+            'body_markdown': '技术方案完整性响应：提供运维值班与应急预案。【验收锚点-章节正文】',
+            'mark_generate_gate': True,
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    assert '验收锚点-章节正文' in saved.json()['section']['body_markdown']
+    assert saved.json()['content_stats']['filled'] == 1
+    reloaded = client.get(f'/v1/bid-versions/{bid_id}')
+    assert reloaded.status_code == 200
+    reloaded_section = next(
+        item for item in reloaded.json()['sections'] if item['id'] == target['id']
+    )
+    assert '验收锚点-章节正文' in reloaded_section['body_markdown']
+    generate_stage = next(
+        item for item in client.get(f'/v1/projects/{project_id}/stages').json()['stages']
+        if item['stage'] == 'generate'
+    )
+    assert generate_stage['passed'] is True
+
+    matrix = client.post(f'/v1/bid-versions/{bid_id}/response-matrix/rebuild')
+    assert matrix.status_code == 200, matrix.text
+    assert matrix.json()['summary']['total'] >= 3
+    assert matrix.json()['summary']['mandatory_total'] >= 1
+    matrix_row = next(
+        item for item in matrix.json()['rows']
+        if item['requirement_category'] == 'technical'
+    )
+    patched = client.patch(
+        f'/v1/requirement-responses/{matrix_row["id"]}',
+        json={'response_status': 'responded', 'response_summary': '已在技术章节响应'},
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()['row']['response_status'] == 'responded'
 
     export_blocked = client.post(
         f'/v1/projects/{project_id}/export-jobs',
@@ -126,15 +172,52 @@ def test_full_pipeline_outline_review_export(client):
     )
     assert review.status_code == 201, review.text
     assert review.json()['summary']['finding_count'] >= 1
-    finding_id = review.json()['findings'][0]['id']
-    decided = client.post(
-        f'/v1/review-findings/{finding_id}/decide',
-        json={'decision_status': 'accepted', 'notes': '已核对'},
-    )
-    assert decided.status_code == 200
-    assert decided.json()['decision_status'] == 'accepted'
+    run_id = review.json()['id']
+    first_finding_id = review.json()['findings'][0]['id']
 
-    client.post(f'/v1/projects/{project_id}/stages/check', json={'status': 'passed'})
+    open_high_before = [
+        item for item in review.json()['findings']
+        if item['decision_status'] == 'open' and item['severity'] in {'high', 'critical'}
+    ]
+    if open_high_before:
+        blocked_check = client.post(
+            f'/v1/projects/{project_id}/stages/check',
+            json={'status': 'passed'},
+        )
+        assert blocked_check.status_code == 400
+
+    for finding in review.json()['findings']:
+        if finding['decision_status'] != 'open':
+            continue
+        if finding['severity'] not in {'high', 'critical'}:
+            continue
+        decided = client.post(
+            f'/v1/review-findings/{finding["id"]}/decide',
+            json={'decision_status': 'accepted', 'notes': f'已核对：{finding["title"]}'},
+        )
+        assert decided.status_code == 200, decided.text
+
+    approved = client.post(
+        f'/v1/review-runs/{run_id}/approve',
+        json={'approval_status': 'approved', 'notes': '高风险已处理'},
+    )
+    assert approved.status_code == 200, approved.text
+    assert approved.json()['approval_status'] == 'approved'
+
+    history = client.get(f'/v1/review-findings/{first_finding_id}/history')
+    assert history.status_code == 200
+    if open_high_before and first_finding_id in {item['id'] for item in open_high_before}:
+        assert history.json()['events']
+
+    audit_logs = client.get(f'/v1/projects/{project_id}/audit-logs')
+    assert audit_logs.status_code == 200
+    assert any(item['action'].startswith('review.') for item in audit_logs.json()['logs'])
+
+    passed_check = client.post(
+        f'/v1/projects/{project_id}/stages/check',
+        json={'status': 'passed', 'notes': '审查已批准'},
+    )
+    assert passed_check.status_code == 200, passed_check.text
     exported = client.post(
         f'/v1/projects/{project_id}/export-jobs',
         json={'bid_version_id': bid_id, 'bidder_name': '测试公司'},
@@ -144,6 +227,10 @@ def test_full_pipeline_outline_review_export(client):
     path = object_store.path(artifact['object_key'])
     assert path.exists()
     assert path.read_bytes()[:2] == b'PK'
+    exported_doc = Document(str(path))
+    text = '\n'.join(paragraph.text for paragraph in exported_doc.paragraphs)
+    assert '验收锚点-章节正文' in text
+    assert '缺失材料与待办清单' in text
     download = client.get(f'/v1/exports/{artifact["id"]}/download')
     assert download.status_code == 200
     assert download.content[:2] == b'PK'
@@ -151,3 +238,77 @@ def test_full_pipeline_outline_review_export(client):
     mineru = client.get('/v1/integrations/mineru')
     assert mineru.status_code == 200
     assert 'configured' in mineru.json()
+
+
+def test_high_risk_decision_requires_notes_and_blocks_check(client):
+    project_id, version_id = _seed_project_with_version(client)
+    client.post(f'/v1/projects/{project_id}/stages/requirements', json={'status': 'passed'})
+    bid_id = client.post(
+        f'/v1/projects/{project_id}/outline/from-requirements',
+        json={'document_version_id': version_id},
+    ).json()['bid_version']['id']
+    client.post(f'/v1/bid-versions/{bid_id}/response-matrix/rebuild')
+    review = client.post(
+        f'/v1/projects/{project_id}/review-runs',
+        json={'bid_version_id': bid_id, 'document_version_id': version_id},
+    ).json()
+    high = next(
+        (item for item in review['findings'] if item['severity'] in {'high', 'critical'}),
+        review['findings'][0],
+    )
+    rejected = client.post(
+        f'/v1/review-findings/{high["id"]}/decide',
+        json={'decision_status': 'waived', 'notes': ''},
+    )
+    assert rejected.status_code == 400
+    blocked = client.post(
+        f'/v1/projects/{project_id}/stages/check',
+        json={'status': 'passed'},
+    )
+    # If this finding is high/critical and still open, check must fail.
+    if high['severity'] in {'high', 'critical'}:
+        assert blocked.status_code == 400
+    forced = client.post(
+        f'/v1/projects/{project_id}/stages/check',
+        json={'status': 'passed', 'force_skip_high_risk': True, 'notes': '业务签字强制通过'},
+    )
+    assert forced.status_code == 200, forced.text
+
+
+def test_response_matrix_preserves_manual_status(client):
+    project_id, version_id = _seed_project_with_version(client)
+    client.post(f'/v1/projects/{project_id}/stages/requirements', json={'status': 'passed'})
+    bid_id = client.post(
+        f'/v1/projects/{project_id}/outline/from-requirements',
+        json={'document_version_id': version_id},
+    ).json()['bid_version']['id']
+    first = client.post(f'/v1/bid-versions/{bid_id}/response-matrix/rebuild').json()
+    row_id = first['rows'][0]['id']
+    client.patch(
+        f'/v1/requirement-responses/{row_id}',
+        json={'response_status': 'waived', 'notes': '业务确认豁免', 'response_summary': '豁免说明'},
+    )
+    second = client.post(f'/v1/bid-versions/{bid_id}/response-matrix/rebuild').json()
+    kept = next(item for item in second['rows'] if item['id'] == row_id)
+    assert kept['response_status'] == 'waived'
+    assert '豁免' in (kept['response_summary'] or kept['notes'] or '')
+
+
+def test_section_seed_placeholder_and_reject_overwrite(client):
+    project_id, version_id = _seed_project_with_version(client)
+    client.post(f'/v1/projects/{project_id}/stages/requirements', json={'status': 'passed'})
+    outline = client.post(
+        f'/v1/projects/{project_id}/outline/from-requirements',
+        json={'document_version_id': version_id},
+    ).json()
+    section_id = outline['bid_version']['sections'][0]['id']
+    seeded = client.post(f'/v1/bid-sections/{section_id}/seed-placeholder', json={})
+    assert seeded.status_code == 200, seeded.text
+    assert '【待补充】' in seeded.json()['section']['body_markdown']
+    blocked = client.post(f'/v1/bid-sections/{section_id}/seed-placeholder', json={})
+    assert blocked.status_code == 400
+    overwritten = client.post(
+        f'/v1/bid-sections/{section_id}/seed-placeholder',
+        json={'overwrite': True},
+    )
+    assert overwritten.status_code == 200

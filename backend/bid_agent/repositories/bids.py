@@ -52,8 +52,9 @@ def create_bid_version(
         for index, section in enumerate(sections or []):
             conn.execute(
                 '''INSERT INTO bid_sections(
-                    id,bid_version_id,section_key,title,level,sort_order,body_markdown)
-                   VALUES(?,?,?,?,?,?,?)''',
+                    id,bid_version_id,section_key,title,level,sort_order,
+                    body_markdown,updated_at,updated_by)
+                   VALUES(?,?,?,?,?,?,?,?,?)''',
                 (
                     new_id('sec'),
                     bid_id,
@@ -62,6 +63,8 @@ def create_bid_version(
                     int(section.get('level') or 1),
                     int(section.get('sort_order', index)),
                     section.get('body_markdown') or '',
+                    timestamp if (section.get('body_markdown') or '').strip() else None,
+                    user.id if (section.get('body_markdown') or '').strip() else None,
                 ),
             )
     return get_bid_version(bid_id, user)
@@ -85,6 +88,19 @@ def list_bid_versions(project_id: str, user: Principal) -> list[dict]:
                 'covered': coverage.get('covered'),
                 'total': coverage.get('total'),
             }
+            stats = conn.execute(
+                '''SELECT COUNT(*) AS total,
+                          SUM(CASE WHEN TRIM(COALESCE(body_markdown,''))!='' THEN 1 ELSE 0 END) AS filled
+                   FROM bid_sections WHERE bid_version_id=?''',
+                (item['id'],),
+            ).fetchone()
+            total = int(stats['total'] or 0)
+            filled = int(stats['filled'] or 0)
+            item['content_stats'] = {
+                'total': total,
+                'filled': filled,
+                'empty': total - filled,
+            }
             result.append(item)
         return result
 
@@ -100,7 +116,8 @@ def get_bid_version(bid_version_id: str, user: Principal) -> dict:
         sections = [
             dict(item)
             for item in conn.execute(
-                '''SELECT id,section_key,title,level,sort_order,body_markdown
+                '''SELECT id,section_key,title,level,sort_order,body_markdown,
+                          updated_at,updated_by
                    FROM bid_sections WHERE bid_version_id=? ORDER BY sort_order,title''',
                 (bid_version_id,),
             ).fetchall()
@@ -109,4 +126,59 @@ def get_bid_version(bid_version_id: str, user: Principal) -> dict:
         payload['outline_tree'] = json.loads(payload.pop('outline_json') or '{}')
         payload['score_coverage'] = json.loads(payload.pop('score_coverage_json') or '{}')
         payload['sections'] = sections
+        payload['content_stats'] = _content_stats(sections)
         return payload
+
+
+def get_section(section_id: str, user: Principal) -> dict:
+    with transaction() as conn:
+        return _load_section(conn, section_id, user, write=False)
+
+
+def update_section(
+    section_id: str,
+    user: Principal,
+    *,
+    body_markdown: str,
+    title: str | None = None,
+) -> dict:
+    timestamp = now()
+    with transaction(immediate=True) as conn:
+        section = _load_section(conn, section_id, user, write=True)
+        new_title = title if title is not None else section['title']
+        if not str(new_title or '').strip():
+            raise ValueError('章节标题不能为空')
+        conn.execute(
+            '''UPDATE bid_sections
+               SET body_markdown=?, title=?, updated_at=?, updated_by=?
+               WHERE id=?''',
+            (body_markdown or '', str(new_title).strip(), timestamp, user.id, section_id),
+        )
+    return get_section(section_id, user)
+
+
+def _load_section(
+    conn,
+    section_id: str,
+    user: Principal,
+    *,
+    write: bool,
+) -> dict:
+    row = conn.execute(
+        '''SELECT s.id,s.bid_version_id,s.section_key,s.title,s.level,s.sort_order,
+                  s.body_markdown,s.updated_at,s.updated_by,b.project_id,b.title AS bid_title
+           FROM bid_sections s
+           JOIN bid_versions b ON b.id=s.bid_version_id
+           WHERE s.id=?''',
+        (section_id,),
+    ).fetchone()
+    if not row:
+        raise NotFoundError('章节不存在')
+    check_access(conn, row['project_id'], user, write=write)
+    return dict(row)
+
+
+def _content_stats(sections: list[dict]) -> dict:
+    total = len(sections)
+    filled = sum(1 for item in sections if str(item.get('body_markdown') or '').strip())
+    return {'total': total, 'filled': filled, 'empty': total - filled}

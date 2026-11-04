@@ -24,6 +24,10 @@
 3. 标注证据时记录文件名、章节／页码；本目录文件版权归原发布单位，引用请保留来源链接。
 4. 若需补充 DOCX／扫描件样本，另放入本目录并更新本表。
 
+## B10 检索评测样例
+
+见 [retrieval/](retrieval/README.md)：先重建索引，再按 `req:`／`sec:`／`asset:` chunk id 填写 `relevant_ids` 跑 Recall@K。
+
 ## B07 黄金标注
 
 | 标注 | 说明 |

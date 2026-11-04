@@ -4,13 +4,15 @@ from __future__ import annotations
 from bid_agent.compliance import checks
 from bid_agent.compliance.types import CheckContext, CheckFinding, CheckFn
 
-CHECKER_VERSION = 'compliance-v1'
+CHECKER_VERSION = 'compliance-v3'
 
 RULE_CHECKS: list[tuple[str, CheckFn]] = [
     ('pricing_check', checks.pricing_check),
     ('rejection_alignment', checks.rejection_alignment_check),
     ('mandatory_req_check', checks.mandatory_star_check),
     ('score_coverage', checks.scoring_coverage_check),
+    ('response_matrix', checks.response_matrix_check),
+    ('expired_asset', checks.expired_asset_check),
     ('selfcheck_list', checks.selfcheck_list),
 ]
 

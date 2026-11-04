@@ -8,7 +8,7 @@ from bid_agent.compliance.types import CheckContext
 from bid_agent.core.identity import Principal
 from bid_agent.core.model_config import resolve_llm_selection
 from bid_agent.infrastructure.llm_client import LLM_Invoke
-from bid_agent.repositories import bids, requirements as requirement_repo, reviews, stages
+from bid_agent.repositories import assets, bids, requirements as requirement_repo, responses, reviews, stages
 
 
 def create_review_run(
@@ -23,6 +23,8 @@ def create_review_run(
     bid = None
     sections: list[dict] = []
     outline_markdown = ''
+    matrix_rows: list[dict] = []
+    linked_assets = assets.list_for_project(project_id, user, usable_only=False)
     version_id = document_version_id
     if bid_version_id:
         bid = bids.get_bid_version(bid_version_id, user)
@@ -31,6 +33,7 @@ def create_review_run(
         sections = bid.get('sections') or []
         outline_markdown = bid.get('outline_markdown') or ''
         version_id = version_id or bid.get('document_version_id')
+        matrix_rows = responses.list_for_bid(bid_version_id, user)
 
     items: list[dict] = []
     if version_id:
@@ -55,6 +58,8 @@ def create_review_run(
         project_id=project_id,
         requirements=items,
         bid_sections=sections,
+        response_matrix=matrix_rows,
+        linked_assets=linked_assets,
         outline_markdown=outline_markdown,
         bid_text=bid_text,
         use_llm=use_llm,

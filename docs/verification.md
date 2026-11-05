@@ -175,11 +175,26 @@ python scripts/eval_requirement_recall.py \
 - 脚本就位：`drill_recovery.py`（备份清单哈希）、`drill_capacity.py`（健康延迟）、`sqlite_inventory.py`；文档见 `docs/operations/drills.md`、`docs/implementation/b08-postgres.md`、`deploy/postgres/schema_v1.sql`。
 - 未覆盖：独立环境完整切流恢复、生产 RTO／容量目标签字、Alembic 生产迁移与 PostgreSQL 写路径切换。
 
+### 解析降噪五件套（2026-11-06 00:25）
+
+- `test_section_split`：页脚预处理、TOC 去重、前附表行不切章、表格 meta 注释 roundtrip。
+- `test_parse_strategy`：表密 PDF 在 Docling 可用／不可用时的 auto 路由。
+- `test_parse_version_blocks`：`bid-parser-v2` 产出 `type=table` 且保留 bbox；`title_path`→`section_path`。
+- 全量 `pytest` **51 passed**；`ruff` 通过。
+- 未覆盖：Compose 重建后对安徽样例重跑的浏览器截图；MinerU 版面 JSON→章节 bbox；跨页复杂表人工视觉签字。
+
+### 解析降噪收口（2026-11-06 00:39）
+
+- 增补：点线 TOC、前附表退出「二、」、行内「前附表」不进附件模式、子树权重去重、文中连续空章栈（含尾随第八章）抑制。
+- 全量 `pytest` **54 passed**；`ruff` 通过。
+- Compose 重建后安徽样例 `job_58e63c16…`：sections **169**；章序 第一…第八无重复；采购需求前附表 **156** 字且保留「二、货物需求」；页脚 **0**；table blocks **62**。对比 v1（292／页脚98）与 v2 首跑（61／前附表吞 4.7 万字）。
+- 未覆盖：浏览器截图；MinerU 章节 bbox。
+
 ## 尚未验证／未实施
 
 - 真实 MinerU／LLM 服务调用、OCR／扫描件质量、复杂跨页表格、真实招标业务验收。本轮没有使用业务密钥或付费外部调用。
 - full 镜像的 OCR／Docling／Chroma／Embedding／Reranker 推理及模型下载；本轮实测 runtime 镜像。
-- 章节级 ParsedDocument 不等于精确页坐标或逐表格结构。当前 DOCX 解析会保留表格文字，但原有解析器可能展开／重复表格内容，不能据此认定复杂表格结构已验收。
+- 章节级 ParsedDocument 仍通常无 bbox；表格块在 pdfplumber `find_tables` 路径可带框，不等于复杂跨页表已验收。
 - 冷备副本可通过 `drill_recovery` 校验清单哈希；完整导入新卷切流与生产恢复／容量目标仍未签字。
 - PostgreSQL 正式切流、S3、独立 PDF Worker、完整标书协同编辑仍属后续。B08／B10／B12／B16 均为草稿骨架或 SQLite 先行能力，不等于方案级全部验收完成。同步模板化 DOCX、闸门、章节、矩阵、审查、资产、关键词检索与证据成章已有 API 回归，不等于人工视觉黄金样本、多级会签、多租户隔离与业务签字。B07 规则／hybrid 精抽、要求清单 UI 与安阳单样本召回已有记录，不等于方案级字段验收完成。旧分析长请求与 LLM 精抽均未迁入任务队列（精抽仍为同步请求，约 1–2 分钟）。
 - 账号找回／重置、成员撤销、统一业务审计、单点登录、企业级多租户与生产安全加固尚未完成。

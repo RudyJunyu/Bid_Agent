@@ -102,16 +102,26 @@ def recommend_parse_method_from_profile(profile: dict) -> str:
         text_layer_pages = int(profile.get("text_layer_pages") or 0)
         has_usable_text = text_layer_pages > 0 and text_chars_per_page >= 80
 
+        sample_table_count = int(profile.get("sample_table_count") or 0)
         if pdf_type == "scanned_pdf" or (not has_usable_text and pdf_type != "simple_text_pdf"):
             return "mineru_parallel_pages" if page_count >= 30 else "mineru_vlm"
         if pdf_type in {"simple_text_pdf", "native_text_pdf"}:
+            # Table-dense native PDFs: prefer Docling when installed for structure.
+            if sample_table_count >= 4 and _docling_available():
+                return "docling"
             return "pdfplumber"
         if pdf_type == "mixed_pdf":
             # Text layer is good enough for local parse; images/OCR can be a later pass.
             if has_usable_text:
+                if sample_table_count >= 4 and _docling_available():
+                    return "docling"
                 return "pdfplumber"
             return "mineru_parallel_pages" if page_count >= 30 else "mineru_vlm"
-        return "pdfplumber" if has_usable_text else ("mineru_parallel_pages" if page_count >= 30 else "mineru_vlm")
+        if has_usable_text:
+            if sample_table_count >= 4 and _docling_available():
+                return "docling"
+            return "pdfplumber"
+        return "mineru_parallel_pages" if page_count >= 30 else "mineru_vlm"
 
     if suffix in {".png", ".jpg", ".jpeg", ".webp"}:
         return "mineru_vlm"
@@ -297,3 +307,7 @@ def _estimate_docx_text_chars(path: Path) -> int:
 
 def _module_available(module_name: str) -> bool:
     return importlib.util.find_spec(module_name) is not None
+
+
+def _docling_available() -> bool:
+    return _module_available("docling")

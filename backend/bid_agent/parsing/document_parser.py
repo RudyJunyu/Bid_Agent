@@ -71,6 +71,8 @@ def parse_bid_document(
     timeout: int = 600,
 ) -> List[BidDocumentSection]:
     """Parse a bid document and split it into section objects."""
+    from bid_agent.parsing.normalize import normalize_bid_sections, preprocess_bid_markdown
+
     markdown = parse_document_to_markdown(
         document=document,
         output_dir=output_dir,
@@ -84,8 +86,10 @@ def parse_bid_document(
         poll_interval=poll_interval,
         timeout=timeout,
     )
+    markdown = preprocess_bid_markdown(markdown)
     sections = split_bid_markdown_sections(markdown)
     sections = consolidate_bid_sections(sections)
+    sections = normalize_bid_sections(sections)
     return enrich_sections_with_metadata(sections, document=document)
 
 
@@ -304,7 +308,10 @@ def _parse_with_parallel_mineru_pages(
 
     merged = []
     for _, page_range, markdown in sorted(results, key=lambda item: item[0]):
-        merged.append(f"## MinerU 页段 {page_range}\n\n{markdown.strip()}")
+        # HTML comments only — avoid false top-level "## MinerU 页段" sections.
+        first_page = page_range.split("-", 1)[0].split(",", 1)[0].strip()
+        prefix = f"<!-- page:{first_page} -->" if first_page.isdigit() else f"<!-- mineru_pages:{page_range} -->"
+        merged.append(f"{prefix}\n\n{markdown.strip()}")
     return "\n\n".join(merged).strip()
 
 
@@ -457,14 +464,45 @@ def parse_bid_document_as_list(
 
 def split_bid_markdown_sections(markdown: str) -> List[BidDocumentSection]:
     """Split Markdown into chapter/section chunks."""
+    from bid_agent.parsing.normalize import (
+        TOC_TITLE_RE,
+        find_mid_toc_chapter_lines,
+        find_toc_suppressed_lines,
+        is_front_table_heading,
+    )
+
     lines = markdown.splitlines()
+    toc_suppressed = find_toc_suppressed_lines(lines, _detect_heading) | find_mid_toc_chapter_lines(
+        lines, _detect_heading
+    )
     heading_positions = []
+    in_front_table = False
 
     for line_number, line in enumerate(lines):
+        if line_number in toc_suppressed:
+            continue
         heading = _detect_heading(line)
-        if heading:
-            level, title = heading
+        if not heading:
+            continue
+        level, title = heading
+        compact = title.replace(" ", "")
+        if TOC_TITLE_RE.fullmatch(compact):
+            in_front_table = False
             heading_positions.append((line_number, level, title))
+            continue
+        if is_front_table_heading(title):
+            in_front_table = True
+            heading_positions.append((line_number, level, title))
+            continue
+        if level <= 1 and CHINESE_CHAPTER_RE.match(title):
+            in_front_table = False
+        elif in_front_table and level <= 2 and CHINESE_ORDER_RE.match(title):
+            # 二、货物需求 / 二、投标人须知正文 ends the attachment-table zone.
+            in_front_table = False
+        if in_front_table and level >= 2:
+            # Keep 前附表 rows as body text under the attachment heading.
+            continue
+        heading_positions.append((line_number, level, title))
 
     if not heading_positions:
         content = markdown.strip()
@@ -636,18 +674,28 @@ def _match_image_to_section(image: dict[str, Any], sections: List[BidDocumentSec
 
 
 def _extract_markdown_tables_json(markdown: str) -> list[dict[str, Any]]:
+    from bid_agent.parsing.normalize import parse_table_meta_comment
+
     tables: list[dict[str, Any]] = []
     table_lines: list[str] = []
+    pending_meta: dict[str, Any] = {}
     for line in str(markdown or "").splitlines() + [""]:
         stripped = line.strip()
+        meta_match = re.match(r"<!--\s*table\s+([^>]*?)-->", stripped, re.IGNORECASE)
+        if meta_match:
+            pending_meta = parse_table_meta_comment(meta_match.group(1))
+            continue
         if stripped.startswith("|") and stripped.endswith("|"):
             table_lines.append(stripped)
             continue
         if table_lines:
             parsed = _parse_markdown_table(table_lines)
             if parsed:
+                if pending_meta:
+                    parsed.update(pending_meta)
                 tables.append(parsed)
             table_lines = []
+            pending_meta = {}
     return tables
 
 
@@ -839,11 +887,10 @@ def _extract_docx_with_docx2python(path: Path) -> str:
         raise RuntimeError("Please install docx2python before using parse_method=docx2python.") from exc
 
     with docx2python(path) as docx_content:
+        # Intentionally skip header/footer — they pollute section trees and evidence spans.
         parts = [
             getattr(docx_content, "text", ""),
             _flatten_docx2python_content(getattr(docx_content, "body", "")),
-            _flatten_docx2python_content(getattr(docx_content, "header", "")),
-            _flatten_docx2python_content(getattr(docx_content, "footer", "")),
             _flatten_docx2python_content(getattr(docx_content, "footnotes", "")),
             _flatten_docx2python_content(getattr(docx_content, "endnotes", "")),
         ]
@@ -866,20 +913,6 @@ def _extract_docx_with_python_docx(path: Path) -> str:
 
     for table in document.tables:
         lines.extend(_extract_docx_table_lines(table))
-
-    for section in document.sections:
-        for paragraph in section.header.paragraphs:
-            text = paragraph.text.strip()
-            if text:
-                lines.append(text)
-        for table in section.header.tables:
-            lines.extend(_extract_docx_table_lines(table))
-        for paragraph in section.footer.paragraphs:
-            text = paragraph.text.strip()
-            if text:
-                lines.append(text)
-        for table in section.footer.tables:
-            lines.extend(_extract_docx_table_lines(table))
 
     return "\n".join(lines).strip()
 
@@ -1330,7 +1363,7 @@ def _parse_pdf_with_pdfplumber(document: str, page_ranges: Optional[str]) -> str
             blocks = [f"<!-- page:{page_index} -->"]
             if text.strip():
                 blocks.append(text.strip())
-            table_blocks = _extract_pdfplumber_tables_as_markdown(page)
+            table_blocks = _extract_pdfplumber_tables_as_markdown(page, page_index=page_index)
             if table_blocks:
                 blocks.extend(table_blocks)
             if getattr(page, "images", None):
@@ -1339,32 +1372,69 @@ def _parse_pdf_with_pdfplumber(document: str, page_ranges: Optional[str]) -> str
     return "\n\n".join(page_texts).strip()
 
 
-def _extract_pdfplumber_tables_as_markdown(page: Any) -> List[str]:
+def _extract_pdfplumber_tables_as_markdown(page: Any, page_index: int | None = None) -> List[str]:
+    page_no = page_index or int(getattr(page, "page_number", 0) or 0) or None
+    markdown_tables: List[str] = []
+
+    try:
+        found = page.find_tables() if hasattr(page, "find_tables") else None
+        table_objs = list(getattr(found, "tables", None) or found or [])
+    except Exception:
+        table_objs = []
+
+    if table_objs:
+        for table in table_objs:
+            try:
+                rows = table.extract() or []
+            except Exception:
+                continue
+            bbox = getattr(table, "bbox", None)
+            rendered = _rows_to_markdown_table(rows)
+            if not rendered:
+                continue
+            if bbox and len(bbox) == 4 and page_no:
+                meta = (
+                    f"<!-- table page={page_no} "
+                    f"bbox={bbox[0]:.2f},{bbox[1]:.2f},{bbox[2]:.2f},{bbox[3]:.2f} -->"
+                )
+                markdown_tables.append(f"{meta}\n{rendered}")
+            else:
+                markdown_tables.append(rendered)
+        return markdown_tables
+
     try:
         tables = page.extract_tables() or []
     except Exception:
         return []
 
-    markdown_tables = []
     for table in tables:
-        cleaned_rows = [
-            [str(cell or "").strip().replace("\n", " ") for cell in row]
-            for row in table
-            if row and any(str(cell or "").strip() for cell in row)
-        ]
-        if not cleaned_rows:
-            continue
-        width = max(len(row) for row in cleaned_rows)
-        normalized = [row + [""] * (width - len(row)) for row in cleaned_rows]
-        header = normalized[0]
-        body = normalized[1:] or [[""] * width]
-        lines = [
-            "| " + " | ".join(header) + " |",
-            "| " + " | ".join("---" for _ in header) + " |",
-        ]
-        lines.extend("| " + " | ".join(row) + " |" for row in body)
-        markdown_tables.append("\n".join(lines))
+        rendered = _rows_to_markdown_table(table)
+        if rendered:
+            if page_no:
+                markdown_tables.append(f"<!-- table page={page_no} -->\n{rendered}")
+            else:
+                markdown_tables.append(rendered)
     return markdown_tables
+
+
+def _rows_to_markdown_table(table: Any) -> str:
+    cleaned_rows = [
+        [str(cell or "").strip().replace("\n", " ") for cell in row]
+        for row in (table or [])
+        if row and any(str(cell or "").strip() for cell in row)
+    ]
+    if not cleaned_rows:
+        return ""
+    width = max(len(row) for row in cleaned_rows)
+    normalized = [row + [""] * (width - len(row)) for row in cleaned_rows]
+    header = normalized[0]
+    body = normalized[1:] or [[""] * width]
+    lines = [
+        "| " + " | ".join(header) + " |",
+        "| " + " | ".join("---" for _ in header) + " |",
+    ]
+    lines.extend("| " + " | ".join(row) + " |" for row in body)
+    return "\n".join(lines)
 
 
 def _parse_page_ranges(page_ranges: Optional[str]) -> set[int]:
@@ -1417,11 +1487,23 @@ def _looks_like_heading(text: str) -> bool:
         return False
     if text.endswith(("。", "，", ",", "；", ";", "、")):
         return False
+    if re.search(r"[□☑☒■✅]", text):
+        return False
+    if re.search(r"\d{4}\s*年", text):
+        return False
     # Numbered lines that already carry a concrete value (1.1项目编号：xxx) are body text.
     if NUMBERED_WITH_VALUE_RE.match(text):
         return False
     if re.search(r"[：:]\s*\S", text):
         return False
+    # Table-like "clause label value" without colon: "3.1 采购人 安徽水利…"
+    rest = re.sub(r"^\s*\d+(?:[.．]\d+)*[.．、]?\s*", "", text).strip()
+    if re.match(r"^\s*\d+(?:[.．]\d+)+", text):
+        tokens = [token for token in re.split(r"\s+", rest) if token]
+        if len(tokens) >= 3 or (
+            len(tokens) >= 2 and (len(rest) > 12 or max(len(token) for token in tokens) >= 6)
+        ):
+            return False
     # Numbered lines that read like sentences (comma/period mid-line) are body text.
     if re.match(r"^\s*\d+", text) and ("，" in text or "。" in text or "；" in text or len(text) > 36):
         return False

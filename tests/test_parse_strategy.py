@@ -1,3 +1,4 @@
+from bid_agent.parsing import strategy as strategy_module
 from bid_agent.parsing.strategy import recommend_parse_method_from_profile
 
 
@@ -10,6 +11,35 @@ def test_native_complex_pdf_prefers_local_pdfplumber():
         'sample_text_chars': 6974,
         'text_layer_pages': 5,
         'empty_text_pages': 0,
+        'sample_table_count': 1,
+    })
+    assert method == 'pdfplumber'
+
+
+def test_table_dense_native_pdf_prefers_docling_when_available(monkeypatch):
+    monkeypatch.setattr(strategy_module, '_docling_available', lambda: True)
+    method = recommend_parse_method_from_profile({
+        'suffix': '.pdf',
+        'pdf_type': 'native_text_pdf',
+        'page_count': 80,
+        'sample_pages': 5,
+        'sample_text_chars': 5000,
+        'text_layer_pages': 5,
+        'sample_table_count': 5,
+    })
+    assert method == 'docling'
+
+
+def test_table_dense_native_pdf_falls_back_without_docling(monkeypatch):
+    monkeypatch.setattr(strategy_module, '_docling_available', lambda: False)
+    method = recommend_parse_method_from_profile({
+        'suffix': '.pdf',
+        'pdf_type': 'native_text_pdf',
+        'page_count': 80,
+        'sample_pages': 5,
+        'sample_text_chars': 5000,
+        'text_layer_pages': 5,
+        'sample_table_count': 5,
     })
     assert method == 'pdfplumber'
 

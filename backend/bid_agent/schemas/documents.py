@@ -32,7 +32,7 @@ class ParsedBlock(BaseModel):
 
 class ParsedDocument(BaseModel):
     schema_version: str = '1.0'
-    parser_version: str = 'bid-parser-v1'
+    parser_version: str = 'bid-parser-v2'
     document_version_id: str
     source_sha256: str
     parse_method: str
